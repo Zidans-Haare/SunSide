@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SunSide</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #f0f0f0;
+    color: #333;
+}
+header {
+    background: #0084ff;
+    color: white;
+    padding: 1.5rem;
+    text-align: center;
+}
+main {
+    max-width: 960px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+section {
+    margin-bottom: 2rem;
+}
+footer {
+    text-align: center;
+    padding: 1rem;
+    background: #222;
+    color: #eee;
+}
+a {
+    color: #0084ff;
+}
+</style>
+</head>
+<body>
+<header>
+    <h1>SunSide</h1>
+    <p>Finde die beste Sitzseite im Zug – Sonne oder Schatten</p>
+</header>
+<main>
+    <section>
+        <h2>Über die App</h2>
+        <p>SunSide berechnet anhand der geplanten Zugstrecke und des Sonnenstands,
+           auf welcher Wagenseite man eher im Schatten oder in der Sonne sitzt.
+           Die Anwendung nutzt Daten der Deutschen Bahn und die Bibliothek
+           <em>astral</em>.</p>
+    </section>
+    <section>
+        <h2>Features</h2>
+        <ul>
+            <li>Eingabe von Start- und Zielbahnhof sowie Abfahrtszeit</li>
+            <li>Berücksichtigung der bevorzugten Sitzseite (Sonne oder Schatten)</li>
+            <li>Visualisierung der Strecke auf einer Karte</li>
+            <li>Tabelle mit berechneten Sonnenpositionen während der Fahrt</li>
+        </ul>
+    </section>
+    <section>
+        <h2>Download &amp; Nutzung</h2>
+        <p>Der Quellcode der Streamlit-App ist auf <a href="https://github.com/example/SunSide">GitHub</a> verfügbar.
+           Nach dem Klonen lässt sich die App mit <code>streamlit run sun_side_app.py</code>
+           starten.</p>
+    </section>
+</main>
+<footer>
+    &copy; 2025 SunSide
+</footer>
+</body>
+</html>

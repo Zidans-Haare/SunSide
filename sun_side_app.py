@@ -1,21 +1,11 @@
-requirements = [
-    "streamlit",
-    "pyhafas",
-    "astral",
-    "geopy",
-    "pandas",
-    "folium",
-    "matplotlib"
-]
-
 import streamlit as st
 from pyhafas import HafasClient
 from pyhafas.profile import DBProfile
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import pytz
-from geopy.distance import geodesic
-from astral import sun
+from astral import Observer
+from astral.sun import azimuth, elevation
 import folium
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
@@ -23,10 +13,14 @@ from math import radians, degrees, atan2, sin, cos
 
 
 def search_station(query: str, client: HafasClient):
-    """Suche nach einem Bahnhofsnamen und liefere Liste von (Name, ID)."""
+    """Suche nach einem Bahnhofsnamen und liefere Liste von (Name, ID, lat, lon)."""
     try:
-        results = client.locations(query, max_locations=5)
-        return [(loc["name"], loc["id"]) for loc in results if loc.get("type") == "stop"]
+        results = client.locations(query)
+        return [
+            (loc.name, loc.id, loc.latitude, loc.longitude)
+            for loc in results[:5]
+            if loc.name and loc.id
+        ]
     except Exception:
         return []
 
@@ -58,8 +52,12 @@ def analyze_points(points, pref: str):
         lat, lon, ts = points[i]
         next_lat, next_lon, _ = points[i + 1]
         bearing = calc_bearing((lat, lon), (next_lat, next_lon))
-        sun_az = sun.azimuth(lat, lon, ts)
-        sun_el = sun.elevation(lat, lon, ts)
+
+        # Erstelle Observer für astral
+        observer = Observer(latitude=lat, longitude=lon)
+        sun_az = azimuth(observer, ts)
+        sun_el = elevation(observer, ts)
+
         if sun_el < 0:
             continue
         delta = (sun_az - bearing) % 360
@@ -78,7 +76,7 @@ def analyze_points(points, pref: str):
         )
     total = left + right
     if total == 0:
-        return records, None, 0, left, right
+        return records, None, 0, 0, 0
     left_pct = left / total * 100
     right_pct = right / total * 100
     if pref.startswith("Sch"):
@@ -133,19 +131,40 @@ if submit:
     if not start_opts or not dest_opts:
         st.error("Bahnhof nicht gefunden oder API-Fehler.")
         st.stop()
-    start_name, start_id = start_opts[0]
-    dest_name, dest_id = dest_opts[0]
+    start_name, start_id, start_lat, start_lon = start_opts[0]
+    dest_name, dest_id, dest_lat, dest_lon = dest_opts[0]
     journey = fetch_journey(client, start_id, dest_id, dep_time)
     if not journey:
         st.error("Keine Verbindung gefunden oder API-Fehler.")
         st.stop()
-    leg = journey["legs"][0]
-    points = [
-        (p["lat"], p["lon"], p["datetime"]) for p in leg.get("polyline", [])
-    ]
-    if not points:
-        st.error("Keine Streckendaten verfügbar.")
+
+    # Extrahiere Punkte aus allen Legs und deren Stopovers
+    points = []
+    for leg in journey.legs:
+        if leg.stopovers:
+            for stopover in leg.stopovers:
+                stop = stopover.stop
+                ts = stopover.departure or stopover.arrival
+                if stop.latitude and stop.longitude and ts:
+                    points.append((stop.latitude, stop.longitude, ts))
+        else:
+            # Fallback: Nutze nur Origin/Destination des Legs
+            if leg.origin.latitude and leg.origin.longitude:
+                points.append((leg.origin.latitude, leg.origin.longitude, leg.departure))
+            if leg.destination.latitude and leg.destination.longitude:
+                points.append((leg.destination.latitude, leg.destination.longitude, leg.arrival))
+
+    if len(points) < 2:
+        st.error("Nicht genügend Streckendaten verfügbar.")
         st.stop()
+
+    # Zeige Verbindungsinfo
+    first_leg = journey.legs[0]
+    st.info(f"**{start_name}** → **{dest_name}**  \n"
+            f"Abfahrt: {first_leg.departure.strftime('%H:%M')} · "
+            f"Ankunft: {journey.legs[-1].arrival.strftime('%H:%M')} · "
+            f"{len(points)} Haltepunkte")
+
     records, rec_side, pct, left_pct, right_pct = analyze_points(points, pref)
     if rec_side:
         if pref.startswith("Sch"):

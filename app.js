@@ -109,17 +109,20 @@ function updateProviderUI() {
   }
 
   els.providerHint.textContent = ({
-    osm: "OSM nutzt echte Gleisgeometrie. Funktioniert am besten bei kurzen bis mittleren Strecken (Bounding Box ≤ 3°²).",
+    osm: "OSM nutzt echte Gleisgeometrie — am besten für Strecken bis ca. 150 km (z. B. München–Nürnberg). Für längere Strecken Luftlinie wählen.",
     road: "Auto/Bus nutzt OSRM-Strassenrouting. Gut fuer direkte Auto- und Fernbusstrecken wie Flixbus ohne Zwischenhalte.",
     straight: "Flugzeug nutzt eine Luftlinie zwischen zwei geocodierten Orten oder Flughäfen.",
     gpx: "Eigene .gpx-Datei hochladen (z. B. von Komoot, Strava, BRouter).",
   })[v];
 
-  refreshSuggestionsAndPreview();
+  // Only refresh if user already typed something (avoid hammering Nominatim on init)
+  if (els.origin.value.trim().length >= 3 || els.destination.value.trim().length >= 3) {
+    refreshSuggestionsAndPreview();
+  }
 }
 updateProviderUI();
 
-const debouncedRefreshSuggestions = debounce(refreshSuggestionsAndPreview, 350);
+const debouncedRefreshSuggestions = debounce(refreshSuggestionsAndPreview, 600);
 els.origin.addEventListener("input", () => {
   selectedPlace.origin = null;
   debouncedRefreshSuggestions();
@@ -186,27 +189,35 @@ function labelForPlace(item) {
   return name !== item.display_name ? `${name} — ${item.display_name}` : item.display_name;
 }
 
+async function _fetchNominatim(searchQuery, { stationOnly, limit }) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.search = new URLSearchParams({
+    q: searchQuery,
+    format: "jsonv2",
+    limit: String(stationOnly ? Math.max(limit, 30) : limit),
+    addressdetails: "1",
+    namedetails: "1",
+  }).toString();
+  const r = await fetch(url, { headers: { "Accept": "application/json" } });
+  if (!r.ok) throw new Error(`Geocoding-Fehler: HTTP ${r.status}`);
+  return r.json();
+}
+
 async function searchPlaces(query, { stationOnly = false, limit = 8 } = {}) {
   if (query.trim().length < 3) return [];
-  const cacheKey = `${stationOnly}:${limit}:${query}`;
+  const cacheKey = `${stationOnly}:${limit}:${query.trim().toLowerCase()}`;
   if (placeCache.has(cacheKey)) return placeCache.get(cacheKey);
 
   const queries = stationOnly ? stationQueries(query) : [query];
   const seen = new Set();
   const results = [];
+  const tokens = significantTokens(query);
+
   for (const searchQuery of queries) {
-    const url = new URL("https://nominatim.openstreetmap.org/search");
-    url.search = new URLSearchParams({
-      q: searchQuery,
-      format: "jsonv2",
-      limit: String(stationOnly ? Math.max(limit, 30) : limit),
-      addressdetails: "1",
-      namedetails: "1",
-    }).toString();
-    const r = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!r.ok) throw new Error(`Geocoding ${query}: HTTP ${r.status}`);
-    const data = await r.json();
-    const tokens = significantTokens(query);
+    // Only fire follow-up queries (Hauptbahnhof, etc.) if first returned nothing
+    if (results.length > 0 && stationOnly) break;
+
+    const data = await _fetchNominatim(searchQuery, { stationOnly, limit });
     for (const item of data) {
       if (stationOnly && !looksLikeStation(item)) continue;
       const haystack = normalizeText(`${item.name || ""} ${item.display_name || ""}`);
@@ -221,7 +232,6 @@ async function searchPlaces(query, { stationOnly = false, limit = 8 } = {}) {
         label: labelForPlace(item),
       });
     }
-    if (stationOnly && results.length >= limit) break;
   }
   if (stationOnly) results.sort((a, b) => stationScore(query, b) - stationScore(query, a));
   const sliced = results.slice(0, limit);
@@ -352,10 +362,9 @@ async function refreshSuggestionsAndPreview(options = {}) {
   if (els.provider.value === "gpx") return;
   const stationOnly = els.provider.value === "osm";
   try {
-    const [originOptions, destinationOptions] = await Promise.all([
-      searchPlaces(els.origin.value.trim(), { stationOnly, limit: 8 }),
-      searchPlaces(els.destination.value.trim(), { stationOnly, limit: 8 }),
-    ]);
+    // Sequential to avoid Nominatim rate-limit (1 req/s policy)
+    const originOptions = await searchPlaces(els.origin.value.trim(), { stationOnly, limit: 8 });
+    const destinationOptions = await searchPlaces(els.destination.value.trim(), { stationOnly, limit: 8 });
     optionState.origin = originOptions;
     optionState.destination = destinationOptions;
     renderSuggestionList("origin", originOptions, { visible: showLists && document.activeElement === els.origin });
@@ -434,7 +443,10 @@ async function fetchOverpassRail(start, end, bufferDeg = 0.25) {
   const east = Math.max(start[1], end[1]) + bufferDeg;
   const area = (north - south) * (east - west);
   if (area > 3.0) {
-    throw new Error("OSM-Bereich zu groß. Bitte Start/Ziel präziser eingeben oder GPX nutzen.");
+    throw new Error(
+      `Strecke zu lang für OSM-Modus (Gebiet ${area.toFixed(1)} °² > 3 °²). ` +
+      "Bitte 'Luftlinie' oder 'Auto/Bus' wählen, oder eine GPX-Datei hochladen."
+    );
   }
   const query = `
     [out:json][timeout:40];

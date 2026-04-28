@@ -1,67 +1,152 @@
-# SunSide
+# SunSide ☀
 
-SunSide ist eine **statische Progressive Web App**, die je nach Route und Sonnenstand empfiehlt, auf welcher Wagenseite man besser sitzt. Die App läuft komplett im Browser — die Python-Logik (Sonnenstand, Routing, Wetter-Gewichtung) wird via [Pyodide](https://pyodide.org/) clientseitig ausgeführt.
+**Auf welcher Seite sitze ich im Schatten?**
 
-## Funktionen
+Gibt eine Links/Rechts-Empfehlung für Zug, Bus und Flugzeug — basierend auf Sonnenstand, Streckenführung und optionaler Bewölkung. Läuft als **Progressive Web App direkt im Browser** (keine Installation, kein Account).
 
-- Sitzempfehlung **links / rechts** für Schatten oder Sonne
-- Routenquellen: **OSM-Gleisroute**, **Luftlinie**, eigene **GPX-Datei**
-- Optional: **Bewölkung** (Open-Meteo) gewichtet die Empfehlung
-- Karte mit Polylinie + farbigen Segmentpunkten (Leaflet)
-- Detailtabelle (Kurs, Sonnenazimut, Sonnenhöhe, Wolken)
-- **PWA**: installierbar, App-Shell-Caching, Offline-Start (Berechnungen brauchen Netz für OSM/Wetter)
+[![CI](https://github.com/Zidans-Haare/SunSide/actions/workflows/ci.yml/badge.svg)](https://github.com/Zidans-Haare/SunSide/actions/workflows/ci.yml)
 
-## Lokal starten
+---
 
-Pyodide-Module dürfen nicht über `file://` geladen werden — du brauchst einen **statischen HTTP-Server**.
+## Schnellstart
+
+### Browser-App (empfohlen — keine Installation nötig)
 
 ```bash
-# Python (Bordmittel)
-python -m http.server 8000
-# oder Node:
-npx http-server -p 8000
+# Repo klonen und lokalen Server starten — das war's
+git clone https://github.com/Zidans-Haare/SunSide.git && cd SunSide
+python3 -m http.server 8000
+# → http://localhost:8000
 ```
 
-Dann im Browser: <http://localhost:8000/>
+### Setup-Wizard (Streamlit-UI, .env, Deployment konfigurieren)
 
-Das erste Laden dauert ~5–10 s (Pyodide ~6 MB) und wird vom Service Worker gecacht.
+```bash
+./setup.sh
+```
 
-## Deployment
+Der Wizard fragt nach Modus (Browser / Streamlit), legt `.env` an und startet den Server.
 
-Statisches Hosting reicht. Anforderungen:
+### Auf einem nackten Server (Debian/Ubuntu)
 
-- **HTTPS** (außer `localhost`) — Pflicht für Service Worker / PWA
-- Korrekte MIME-Types für `.webmanifest` und `.py` (die meisten Hoster liefern das von Haus aus richtig)
-- Service Worker liegt im **Wurzelverzeichnis** (`/sw.js`), damit er die ganze App scopt
+```bash
+curl -fsSL https://raw.githubusercontent.com/Zidans-Haare/SunSide/main/setup.sh | bash
+```
 
-Funktioniert direkt mit GitHub Pages, Netlify, Cloudflare Pages, Vercel (statisches Preset), etc.
+---
+
+## Wie es funktioniert
+
+```
+Eingabe: Start, Ziel, Abfahrtszeit
+    │
+    ▼
+Schicht 1 — Route-Provider
+    Echte Gleisgeometrie (OSM Overpass) · Straßenrouting (OSRM)
+    GPX-Upload · Luftlinie
+    │
+    ▼
+Schicht 2 — Sonnenanalyse
+    Bearing je Segment → Sonnenazimut (astral) → links/rechts/Nacht
+    Optionale Gewichtung per Bewölkung (Open-Meteo)
+    │
+    ▼
+Ausgabe: "Sitz links — ca. 75 % im Schatten"
+```
+
+Die Python-Logik läuft via [Pyodide](https://pyodide.org/) vollständig im Browser — kein Server, kein Backend.
+
+---
 
 ## Projektstruktur
 
 ```
 SunSide/
-├── index.html              # SPA Entry
-├── app.js                  # Pyodide-Bootstrapping + UI-Glue
-├── sw.js                   # Service Worker
-├── manifest.webmanifest    # PWA-Manifest
-├── assets/                 # Icons
-├── sunside/                # Python-Logik (wird von Pyodide geladen)
-│   ├── browser_api.py      # Browser-Entry (kein requests, JS reicht Daten rein)
-│   ├── models.py
-│   ├── weather.py
-│   └── sun_analysis/
-└── legacy/                 # alte Streamlit-/Trainings-Skripte (werden nicht mehr genutzt)
+├── index.html                  # App-Einstiegspunkt
+├── app.js                      # Pyodide-Bootstrap + UI
+├── sw.js                       # Service Worker (PWA-Caching)
+├── manifest.webmanifest        # PWA-Manifest
+├── assets/                     # Icons
+│
+├── sunside/                    # Python-Kernlogik (von Pyodide geladen)
+│   ├── models.py               # RoutePoint, SegmentAnalysis, Recommendation
+│   ├── weather.py              # Open-Meteo-Integration
+│   ├── browser_api.py          # Browser-Entry (kein requests, Daten kommen per JS)
+│   ├── sun_analysis/
+│   │   ├── calculator.py       # bearing, haversine, Sonnenposition, Segment-Analyse
+│   │   ├── sampler.py          # Resampling, Auto-Intervall
+│   │   └── analyzer.py        # Haupt-Pipeline
+│   └── route_providers/
+│       ├── osm.py              # Gleisgeometrie via Overpass API
+│       ├── osrm.py             # Straßenrouting
+│       ├── gpx.py              # GPX-Datei-Parser
+│       ├── nominatim.py        # Geocoding + Luftlinie
+│       └── gtfs.py             # GTFS-Feed (in Entwicklung)
+│
+├── app.py                      # Streamlit-App (Desktop-Alternative)
+├── tests/                      # Unit Tests (pytest)
+├── deploy/                     # Caddy-Config + Hetzner-Deploy-Script
+├── data/routes/                # Lokale GPX-Datenbank (gitignored außer .gitkeep)
+└── legacy/                     # Alte Streamlit-/Trainings-Skripte (nicht mehr aktiv)
 ```
+
+---
+
+## Entwicklung
+
+```bash
+# Venv + Test-Abhängigkeiten
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# Tests
+pytest tests/ -v
+
+# Mit Coverage
+pytest tests/ --cov=sunside --cov-report=term-missing
+```
+
+---
+
+## Deployment
+
+### GitHub Pages (automatisch bei Push auf `main`)
+
+Der CI/CD-Workflow in `.github/workflows/deploy.yml` deployed die statische App automatisch auf GitHub Pages, sobald alle Tests grün sind.
+
+Aktivierung: Repository → Settings → Pages → Source: **GitHub Actions**
+
+### Hetzner (manuell)
+
+```bash
+# Einmalig: Server einrichten (Caddy, User, Verzeichnis)
+# Anleitung: deploy/server-setup.md
+
+# .env mit Server-IP anlegen
+cp .env.example .env  # SSH_TARGET setzen
+
+# Deployen
+SSH_TARGET=root@deine-ip ./deploy/deploy.sh
+```
+
+---
 
 ## Datenquellen
 
-- [OpenStreetMap](https://www.openstreetmap.org/) via [Nominatim](https://nominatim.org/) (Geocoding) und [Overpass API](https://overpass-api.de/) (Gleisgeometrie)
-- [Open-Meteo](https://open-meteo.com/) für stündliche Bewölkung
-- [astral](https://astral.readthedocs.io/) für Sonnenstand
+| Quelle | Verwendung | API-Key |
+|--------|------------|---------|
+| [OSM Overpass](https://overpass-api.de/) | Gleisgeometrie | — |
+| [Nominatim](https://nominatim.org/) | Geocoding | — |
+| [OSRM](http://project-osrm.org/) | Straßenrouting | — |
+| [Open-Meteo](https://open-meteo.com/) | Bewölkung (optional) | — |
+| [astral](https://astral.readthedocs.io/) | Sonnenstand (lokal) | — |
 
-Bitte fair nutzen — Nominatim und Overpass sind freie Services mit Rate Limits.
+Alle Services kostenlos und ohne Registrierung. Bitte fair nutzen — Nominatim und Overpass haben Rate Limits.
 
-## Hinweise
+---
 
-- `requirements.txt` listet die Python-Pakete für CLI/Tests; im Browser werden `astral` + `gpxpy` zur Laufzeit per `micropip` geladen.
-- Wirklich offline rechnen geht nicht: Geocoding, OSM und Wetter brauchen Netz. Die App-Shell selbst (HTML, JS, Python-Module, Pyodide-Runtime) liegt aber komplett im Cache — das **Öffnen** ist offline möglich.
+## Bekannte Grenzen
+
+- **Tunnels** werden nicht berücksichtigt (Sonne irrelevant)
+- **GTFS** (Fahrplan-Routen) ist noch in Entwicklung
+- **Offline-Berechnung** nicht möglich: Geocoding, OSM und Wetter brauchen Netz. Die App-Shell selbst (HTML, JS, Python-Module, Pyodide) liegt im Service-Worker-Cache und startet offline.

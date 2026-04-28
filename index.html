@@ -1,73 +1,213 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SunSide</title>
-<style>
-body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-    background: #f0f0f0;
-    color: #333;
-}
-header {
-    background: #0084ff;
-    color: white;
-    padding: 1.5rem;
-    text-align: center;
-}
-main {
-    max-width: 960px;
-    margin: 2rem auto;
-    padding: 0 1rem;
-}
-section {
-    margin-bottom: 2rem;
-}
-footer {
-    text-align: center;
-    padding: 1rem;
-    background: #222;
-    color: #eee;
-}
-a {
-    color: #0084ff;
-}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5b301">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SunSide">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <link rel="apple-touch-icon" href="assets/icon.svg">
+
+  <title>SunSide — Sonnenseite im Zug</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root {
+      --c-bg: #ffffff;
+      --c-fg: #1a1a1a;
+      --c-muted: #6b7280;
+      --c-accent: #f5b301;
+      --c-accent-fg: #1a1a1a;
+      --c-card: #f6f7f9;
+      --c-border: #e5e7eb;
+      --c-hover: #eef2ff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --c-bg: #0f172a; --c-fg: #f1f5f9; --c-muted: #94a3b8;
+        --c-card: #1e293b; --c-border: #334155; --c-hover: #24324a;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--c-bg); color: var(--c-fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 16px; line-height: 1.5; }
+    main { max-width: 720px; margin: 0 auto; padding: env(safe-area-inset-top, 16px) 16px 32px; }
+    header { display: flex; align-items: center; gap: 12px; padding: 16px 0 12px; }
+    header h1 { font-size: 1.5rem; margin: 0; }
+    header .sun { font-size: 1.8rem; }
+    .subtitle { color: var(--c-muted); margin: -8px 0 16px; }
+    .card { background: var(--c-card); border: 1px solid var(--c-border); border-radius: 12px;
+      padding: 16px; margin-bottom: 12px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.95rem; }
+    input[type=text], input[type=date], input[type=time], input[type=file], select {
+      width: 100%; padding: 10px 12px; font: inherit; color: inherit;
+      background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 8px;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .field { margin-bottom: 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .autocomplete { position: relative; }
+    .suggestions { position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; right: 0;
+      max-height: 280px; overflow-y: auto; background: var(--c-bg); color: var(--c-fg);
+      border: 1px solid var(--c-border); border-radius: 10px;
+      box-shadow: 0 16px 38px rgba(15,23,42,0.18); padding: 4px; }
+    .suggestion { width: 100%; border: 0; background: transparent; color: inherit; text-align: left;
+      padding: 10px 11px; border-radius: 8px; cursor: pointer; font: inherit; }
+    .suggestion:hover, .suggestion:focus, .suggestion.active { outline: none; background: var(--c-hover); }
+    .suggestion-title { display: block; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .suggestion-meta { display: block; margin-top: 2px; color: var(--c-muted); font-size: 0.82rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .suggestion-empty { padding: 10px 11px; color: var(--c-muted); font-size: 0.9rem; }
+    .toggle-group { display: flex; gap: 8px; }
+    .toggle-group label { flex: 1; padding: 10px 12px; border: 1px solid var(--c-border);
+      border-radius: 8px; text-align: center; cursor: pointer; background: var(--c-bg); user-select: none; font-weight: 500; }
+    .toggle-group input { display: none; }
+    .toggle-group label:has(input:checked) { background: var(--c-accent); color: var(--c-accent-fg); border-color: var(--c-accent); font-weight: 700; }
+    button.primary { width: 100%; padding: 14px; font: inherit; font-weight: 700; font-size: 1.05rem;
+      background: var(--c-accent); color: var(--c-accent-fg); border: none; border-radius: 12px;
+      cursor: pointer; }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { padding: 10px 12px; border-radius: 8px; margin-top: 8px; font-size: 0.92rem; }
+    .status.info { background: #dbeafe; color: #1e3a8a; }
+    .status.warn { background: #fef3c7; color: #78350f; }
+    .status.error { background: #fee2e2; color: #7f1d1d; }
+    .status.muted { background: var(--c-card); color: var(--c-muted); border: 1px solid var(--c-border); }
+    .recommendation { background: var(--c-accent); color: var(--c-accent-fg); border-radius: 12px;
+      padding: 20px; text-align: center; margin: 12px 0; }
+    .recommendation .side { font-size: 2rem; font-weight: 800; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; }
+    .recommendation .pct { font-size: 1.05rem; margin: 4px 0 0; }
+    .recommendation .meta { font-size: 0.85rem; opacity: 0.85; margin-top: 6px; }
+    #preview-map { height: 260px; border-radius: 12px; margin: 8px 0 12px; }
+    #map { height: 360px; border-radius: 12px; margin: 12px 0; }
+    details { margin-top: 12px; }
+    summary { cursor: pointer; font-weight: 600; padding: 8px 0; color: var(--c-muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--c-border); }
+    th { font-weight: 600; color: var(--c-muted); }
+    .install-banner { display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+      background: var(--c-fg); color: var(--c-bg); padding: 10px 16px; border-radius: 999px;
+      font-size: 0.9rem; box-shadow: 0 6px 16px rgba(0,0,0,0.2); cursor: pointer; border: none; }
+    .install-banner.show { display: block; }
+    .hidden { display: none !important; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem;
+      background: var(--c-card); border: 1px solid var(--c-border); color: var(--c-muted); }
+    @media (max-width: 640px) {
+      .row { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
-<header>
-    <h1>SunSide</h1>
-    <p>Finde die beste Sitzseite im Zug – Sonne oder Schatten</p>
-</header>
-<main>
-    <section>
-        <h2>Über die App</h2>
-        <p>SunSide berechnet anhand der geplanten Zugstrecke und des Sonnenstands,
-           auf welcher Wagenseite man eher im Schatten oder in der Sonne sitzt.
-           Die Anwendung nutzt Daten der Deutschen Bahn und die Bibliothek
-           <em>astral</em>.</p>
+  <main>
+    <header>
+      <h1>SunSide</h1>
+    </header>
+    <p class="subtitle">Auf welcher Seite sitze ich im Schatten?</p>
+
+    <form id="form" class="card" autocomplete="off">
+      <div class="field">
+        <label for="provider">Reisemodus</label>
+        <select id="provider" name="provider">
+          <option value="osm">Zug (OSM-Gleisroute)</option>
+          <option value="road">Auto/Bus (OSRM-Strassenroute)</option>
+          <option value="straight">Flugzeug (Luftlinie)</option>
+          <option value="gpx">GPX-Datei (eigene Route)</option>
+        </select>
+        <p class="status muted" id="provider-hint">Zug nutzt Gleisgeometrie, Auto/Bus nutzt Strassenrouting, Flugzeug nutzt Luftlinie.</p>
+      </div>
+
+      <div class="row" id="origin-destination">
+        <div class="field">
+          <label for="origin" id="origin-label">Von</label>
+          <div class="autocomplete">
+            <input id="origin" name="origin" type="text" placeholder="Berlin" value="Berlin" autocomplete="off" required>
+            <div id="origin-suggestions" class="suggestions hidden" role="listbox"></div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="destination" id="destination-label">Nach</label>
+          <div class="autocomplete">
+            <input id="destination" name="destination" type="text" placeholder="München" value="München" autocomplete="off" required>
+            <div id="destination-suggestions" class="suggestions hidden" role="listbox"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="preview-map" class="hidden"></div>
+
+      <div class="field hidden" id="gpx-field">
+        <label for="gpx">GPX-Datei</label>
+        <input id="gpx" name="gpx" type="file" accept=".gpx,application/gpx+xml">
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="dep-date">Abfahrtsdatum</label>
+          <input id="dep-date" name="dep-date" type="date" required>
+        </div>
+        <div class="field">
+          <label for="dep-time">Abfahrtszeit</label>
+          <input id="dep-time" name="dep-time" type="time" required>
+        </div>
+      </div>
+
+      <div class="field" id="duration-field">
+        <label for="duration">Reisedauer (Stunden): <span id="duration-value">2.0</span></label>
+        <input id="duration" name="duration" type="range" min="0.5" max="12" step="0.5" value="2" style="width:100%;">
+      </div>
+
+      <div class="field">
+        <label>Präferenz</label>
+        <div class="toggle-group">
+          <label><input type="radio" name="pref" value="Schatten" checked><span>Schatten</span></label>
+          <label><input type="radio" name="pref" value="Sonne"><span>Sonne</span></label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:8px; font-weight:500;">
+          <input type="checkbox" id="weather" style="width:auto;"> Bewölkung berücksichtigen (Open-Meteo)
+        </label>
+      </div>
+
+      <button class="primary" id="submit" type="submit" disabled>Lade Python-Runtime…</button>
+      <div id="status" class="status muted hidden"></div>
+    </form>
+
+    <section id="result" class="hidden">
+      <div id="recommendation" class="recommendation">
+        <p class="side" id="result-side">—</p>
+        <p class="pct" id="result-pct"></p>
+        <p class="meta" id="result-meta"></p>
+      </div>
+      <div id="map"></div>
+      <details>
+        <summary>Details pro Segment</summary>
+        <div style="overflow-x:auto;">
+          <table id="segments-table">
+            <thead><tr><th>Zeit</th><th>Kurs°</th><th>Sonne°</th><th>Höhe°</th><th>Wolken%</th><th>Faktor</th><th>Seite</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
     </section>
-    <section>
-        <h2>Features</h2>
-        <ul>
-            <li>Eingabe von Start- und Zielbahnhof sowie Abfahrtszeit</li>
-            <li>Berücksichtigung der bevorzugten Sitzseite (Sonne oder Schatten)</li>
-            <li>Visualisierung der Strecke auf einer Karte</li>
-            <li>Tabelle mit berechneten Sonnenpositionen während der Fahrt</li>
-        </ul>
-    </section>
-    <section>
-        <h2>Download &amp; Nutzung</h2>
-        <p>Der Quellcode der Streamlit-App ist auf <a href="https://github.com/example/SunSide">GitHub</a> verfügbar.
-           Nach dem Klonen lässt sich die App mit <code>streamlit run sun_side_app.py</code>
-           starten.</p>
-    </section>
-</main>
-<footer>
-    &copy; 2025 SunSide
-</footer>
+
+    <p style="text-align:center; color:var(--c-muted); font-size:0.8rem; margin-top:24px;">
+      <span class="pill" id="runtime-pill">Pyodide…</span>
+      &middot; Daten: OpenStreetMap, Open-Meteo, astral
+    </p>
+  </main>
+
+  <button id="install-btn" class="install-banner" type="button">Zum Startbildschirm hinzufügen</button>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
+  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>

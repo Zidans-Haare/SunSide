@@ -1,0 +1,49 @@
+# SunSide — Caddy site config
+# Place at /etc/caddy/Caddyfile (or include from there).
+# Caddy zieht sich automatisch ein Let's-Encrypt-Zertifikat.
+#
+# DOMAIN unten anpassen!
+
+sunside.example.com {
+	root * /var/www/sunside
+	encode zstd gzip
+	file_server
+
+	# Korrekte MIME-Types (Caddy kennt .py meist nicht)
+	@webmanifest path *.webmanifest
+	header @webmanifest Content-Type "application/manifest+json; charset=utf-8"
+
+	@py path *.py
+	header @py Content-Type "text/x-python; charset=utf-8"
+
+	# --- Caching-Strategie ---
+	# Service Worker NIE cachen (sonst bekommt der User nie ein Update)
+	@sw path /sw.js
+	header @sw Cache-Control "no-cache, no-store, must-revalidate"
+
+	# index.html und Python-Module: kurz cachen (Updates greifen schnell)
+	@shell path /index.html / /app.js /manifest.webmanifest /sunside/*
+	header @shell Cache-Control "no-cache"
+
+	# Icons / Assets: lange cachen
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# --- Security-Header ---
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+		# kein X-Frame-Options noetig, frame-ancestors via CSP regelt das:
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://unpkg.com 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self' https://nominatim.openstreetmap.org https://overpass-api.de https://overpass.kumi.systems https://api.open-meteo.com https://cdn.jsdelivr.net; font-src 'self' data:; worker-src 'self' blob:; frame-ancestors 'none';"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/sunside.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

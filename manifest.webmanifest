@@ -1,0 +1,17 @@
+{
+  "name": "SunSide — Sonnenseite im Zug",
+  "short_name": "SunSide",
+  "description": "Empfehlung, auf welcher Wagenseite man besser sitzt — Schatten oder Sonne.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#f5b301",
+  "lang": "de",
+  "categories": ["travel", "utilities"],
+  "icons": [
+    { "src": "assets/icon.svg",          "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "assets/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

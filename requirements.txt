@@ -1,9 +1,6 @@
-streamlit
-pyhafas
-astral
-geopy
-pandas
-folium
-matplotlib
-streamlit-folium
-pytz
+# Nur fuer CLI/Tests der reinen Python-Module unter sunside/.
+# Die Browser-App (index.html + Pyodide) braucht KEIN dieser Pakete auf dem
+# Server: astral und gpxpy werden zur Laufzeit per micropip geladen.
+astral>=3.2
+gpxpy>=1.6
+requests>=2.31

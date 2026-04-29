@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import requests
 
+from sunside.http_cache import cached_request
 from sunside.models import RoutePoint
 from sunside.route_providers.base import RouteProvider
 from sunside.route_providers.nominatim import geocode_place
@@ -50,7 +51,8 @@ class OsrmRoadProvider(RouteProvider):
             start=f"{start[1]},{start[0]}",
             end=f"{end[1]},{end[0]}",
         )
-        response = requests.get(
+        response = cached_request(
+            "GET",
             url,
             params={"overview": "full", "geometries": "geojson"},
             headers={"User-Agent": "SunSide/1.0"},

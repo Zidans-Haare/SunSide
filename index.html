@@ -115,10 +115,37 @@
         <select id="provider" name="provider">
           <option value="osm">Zug (OSM-Gleisroute)</option>
           <option value="road">Auto/Bus (OSRM-Strassenroute)</option>
-          <option value="straight">Flugzeug (Luftlinie)</option>
+          <option value="gtfs">Fahrplan (GTFS-API: Flixbus, DB, ...)</option>
+          <option value="straight">Flugzeug (Grosskreis)</option>
           <option value="gpx">GPX-Datei (eigene Route)</option>
         </select>
-        <p class="status muted" id="provider-hint">Zug nutzt Gleisgeometrie, Auto/Bus nutzt Strassenrouting, Flugzeug nutzt Luftlinie.</p>
+        <p class="status muted" id="provider-hint">Zug nutzt Gleisgeometrie, Auto/Bus nutzt Strassenrouting, Flugzeug nutzt Grosskreis-Approximation.</p>
+      </div>
+
+      <div class="field hidden" id="gtfs-field">
+        <label for="gtfs-feed">GTFS-Feed</label>
+        <select id="gtfs-feed" name="gtfs-feed"></select>
+        <div class="row" style="margin-top:8px;">
+          <div class="field">
+            <label for="gtfs-board">Einstieg</label>
+            <div class="autocomplete">
+              <input id="gtfs-board" type="text" placeholder="Villach" autocomplete="off">
+              <div id="gtfs-board-suggestions" class="suggestions hidden" role="listbox"></div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="gtfs-alight">Ausstieg</label>
+            <div class="autocomplete">
+              <input id="gtfs-alight" type="text" placeholder="Padua" autocomplete="off">
+              <div id="gtfs-alight-suggestions" class="suggestions hidden" role="listbox"></div>
+            </div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:8px;">
+          <label for="gtfs-trip">Fahrt</label>
+          <select id="gtfs-trip" disabled><option>Erst Halt + Datum waehlen</option></select>
+        </div>
+        <p class="status muted" id="gtfs-hint">Endpoint wird beim Laden geprueft.</p>
       </div>
 
       <div class="row" id="origin-destination">
@@ -208,6 +235,6 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
-  <script type="module" src="app.js?v=4"></script>
+    <script type="module" src="app.js?v=6"></script>
 </body>
 </html>

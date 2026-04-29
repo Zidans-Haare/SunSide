@@ -32,10 +32,11 @@ GTFS, GPX oder manuellen Koordinaten kommt — die Analyse läuft identisch.
    - Query: `way[railway=rail]` entlang des Korridors zwischen zwei Stationen
    - Ideal für Bahn (ICE, Railjet, S-Bahn, U-Bahn)
 
-2. **GTFS-Feed** — Haltestellensequenz + Koordinaten + Fahrzeiten
-   - DB und Flixbus publizieren offizielle GTFS-Daten (kostenlos)
-   - Gibt Haltestellen, aber keine Gleiskurven → Interpolation zwischen Halten
-   - Gut genug für 90 % der Fälle
+2. **Rail-/Bus-GTFS-Feeds** — konkreter Trip + Haltestellensequenz + Fahrzeiten
+   - Rail-GTFS unbedingt mitfuehren: DB/Deutschland, OeBB/Railjet, ggf. weitere nationale Open-Data-Feeds
+   - Flixbus bleibt als Bus-GTFS-Feed parallel wichtig
+   - Gibt echte Fahrzeiten pro Trip; Shapes/Polylines wenn vorhanden, sonst Interpolation zwischen Halten
+   - Fuer lange Direktzuege (z.B. Railjet Dresden → Villach) besser als reine OSM-Zeitmodellierung
 
 3. **OSRM / GraphHopper** — Straßenrouting für Busse
    - Gibt echte Straßengeometrie
@@ -44,6 +45,11 @@ GTFS, GPX oder manuellen Koordinaten kommt — die Analyse läuft identisch.
 4. **GPX-Upload** — manuell einpflegbare Routen, maximale Flexibilität
    - Fallback für alles Exotische
    - Lokale Datenbank mit einmal eingepflegten Lieblingsrouten
+
+5. **Flugzeug-Grosskreis** — lokale Approximation ohne API
+   - Nutzt Grosskreis-Sampling zwischen Start/Ziel statt lat/lon-linearer Linie
+   - Gut fuer Sitzseitenabschaetzung im Reiseflug
+   - Echte ATC-/Airway-Routen spaeter optional via GPX/KML/API
 
 ### Nicht mehr verwenden
 - `pyhafas` / DB HAFAS API — war fragil, rate-limited, jetzt ignoriert
@@ -105,7 +111,7 @@ pandas          — Tabellen im UI
 ## Nächste Schritte (wenn am Rechner)
 
 1. **OSM Overpass Provider** implementieren — echte Gleisgeometrie zwischen zwei Stationen
-2. **GTFS Provider** implementieren — DB + Flixbus Feeds einbinden
+2. **Rail-GTFS Feeds einbinden** — DB/Deutschland + OeBB/Railjet neben Flixbus importieren und in der UI bevorzugen
 3. **GPX Provider** fertig stellen — inkl. lokaler Routen-Datenbank
 4. **Streamlit App** ausbauen — Provider-Auswahl, Kartendarstellung, Segment-Coloring
 5. **Realtest**: Flixbus Villach → irgendwo, Bahnfahrt zum Vergleich

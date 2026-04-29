@@ -1,17 +1,16 @@
 """
-Simple provider: geocode start + end via Nominatim, straight line between them.
-Good enough for very straight routes; replaced by OSM/GTFS for curvy ones.
-This is the fallback when no better geometry is available.
+Simple provider: geocode start + end via Nominatim, then build a great-circle
+route between them. Good for flights and as a fallback when no detailed
+geometry is available.
 """
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 import unicodedata
 
-import requests
-
+from sunside.http_cache import cached_request
+from sunside.flight import make_great_circle_route
 from sunside.models import RoutePoint
 from sunside.route_providers.base import RouteProvider
-from sunside.sun_analysis.calculator import haversine_m
 
 
 @dataclass(frozen=True)
@@ -60,7 +59,8 @@ def search_places(query: str, *, station_only: bool = False, limit: int = 8) -> 
 def _fetch_places(query: str, *, station_only: bool, limit: int) -> list[PlaceSearchResult]:
     request_limit = max(limit, 30) if station_only else limit
     url = "https://nominatim.openstreetmap.org/search"
-    resp = requests.get(
+    resp = cached_request(
+        "GET",
         url,
         params={
             "q": query,
@@ -179,14 +179,14 @@ _geocode = geocode_place
 
 
 class NominatimProvider(RouteProvider):
-    """Straight-line route between geocoded start and end. No real track geometry."""
+    """Great-circle route between geocoded start and end. No real track geometry."""
 
     def __init__(self, *, default_speed_kmh: float = 800.0):
         self.default_speed_kmh = default_speed_kmh
 
     @property
     def name(self) -> str:
-        return "Luftlinie (Nominatim)"
+        return "Grosskreis/Luftlinie (Nominatim)"
 
     def get_route(
         self,
@@ -194,7 +194,7 @@ class NominatimProvider(RouteProvider):
         destination: str,
         departure: datetime,
         travel_hours: float | None = None,
-        n_waypoints: int = 20,
+        n_waypoints: int | None = None,
     ) -> list[RoutePoint]:
         start = _geocode(origin)
         end = _geocode(destination)
@@ -212,24 +212,13 @@ class NominatimProvider(RouteProvider):
         end: tuple[float, float],
         departure: datetime,
         travel_hours: float | None = None,
-        n_waypoints: int = 20,
+        n_waypoints: int | None = None,
     ) -> list[RoutePoint]:
-        lat1, lon1 = start
-        lat2, lon2 = end
-        if travel_hours is None:
-            distance_m = haversine_m(
-                RoutePoint(lat=lat1, lon=lon1, timestamp=departure),
-                RoutePoint(lat=lat2, lon=lon2, timestamp=departure),
-            )
-            travel_seconds = (distance_m / 1000) / self.default_speed_kmh * 3600
-        else:
-            travel_seconds = travel_hours * 3600
-
-        points = []
-        for i in range(n_waypoints + 1):
-            frac = i / n_waypoints
-            lat = lat1 + frac * (lat2 - lat1)
-            lon = lon1 + frac * (lon2 - lon1)
-            ts = departure + timedelta(seconds=frac * travel_seconds)
-            points.append(RoutePoint(lat=lat, lon=lon, timestamp=ts))
-        return points
+        return make_great_circle_route(
+            start,
+            end,
+            departure,
+            travel_hours=travel_hours,
+            default_speed_kmh=self.default_speed_kmh,
+            n_waypoints=n_waypoints,
+        )

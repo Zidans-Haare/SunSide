@@ -1,6 +1,6 @@
 // SunSide Service Worker — App-Shell-Caching
 // Pyodide-Runtime und Tile-Server bleiben Network-First (zu groß / dynamisch).
-const CACHE = "sunside-shell-v4";
+const CACHE = "sunside-shell-v6";
 const SHELL = [
   "./",
   "./index.html",
@@ -10,6 +10,7 @@ const SHELL = [
   "./assets/icon-maskable.svg",
   "./sunside/__init__.py",
   "./sunside/models.py",
+  "./sunside/flight.py",
   "./sunside/browser_api.py",
   "./sunside/weather.py",
   "./sunside/sun_analysis/__init__.py",

@@ -6,13 +6,23 @@ from sunside.sun_analysis.calculator import bearing, haversine_m
 
 
 def _interpolate(p1: RoutePoint, p2: RoutePoint, fraction: float) -> RoutePoint:
-    """Linear interpolation between two RoutePoints (lat/lon + time)."""
+    """Linear interpolation between two RoutePoints (lat/lon + time).
+
+    A point is considered ``in_tunnel`` if either neighbour is in a tunnel
+    (conservative: a sample falling between a tunnel and an open-air node is
+    treated as still inside the tunnel).
+    """
     lat = p1.lat + fraction * (p2.lat - p1.lat)
     lon = p1.lon + fraction * (p2.lon - p1.lon)
     dt1 = p1.timestamp.timestamp()
     dt2 = p2.timestamp.timestamp()
     ts = datetime.fromtimestamp(dt1 + fraction * (dt2 - dt1), tz=p1.timestamp.tzinfo)
-    return RoutePoint(lat=lat, lon=lon, timestamp=ts)
+    return RoutePoint(
+        lat=lat,
+        lon=lon,
+        timestamp=ts,
+        in_tunnel=p1.in_tunnel or p2.in_tunnel,
+    )
 
 
 def resample(points: list[RoutePoint], interval_m: float) -> list[RoutePoint]:

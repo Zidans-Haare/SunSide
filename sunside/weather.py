@@ -38,8 +38,10 @@ class OpenMeteoWeatherProvider:
 
     def _fetch_hour(self, point: RoutePoint, hour_key) -> WeatherSample:
         import requests  # lazy: not available in Pyodide unless explicitly loaded
+        from sunside.http_cache import cached_request
         try:
-            response = requests.get(
+            response = cached_request(
+                "GET",
                 self.endpoint,
                 params={
                     "latitude": point.lat,

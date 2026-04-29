@@ -4,3 +4,9 @@
 astral>=3.2
 gpxpy>=1.6
 requests>=2.31
+pytz>=2024.1
+
+# Optional: GTFS-API-Server fuer den PWA-Fahrplan-Modus.
+# Wenn du nur Streamlit oder die PWA ohne GTFS nutzt, kann das raus.
+fastapi>=0.110
+uvicorn[standard]>=0.29

@@ -15,6 +15,7 @@ from math import inf
 
 import gpxpy
 
+from sunside.flight import make_great_circle_route as _make_great_circle_route
 from sunside.models import RoutePoint
 from sunside.sun_analysis.analyzer import analyze
 from sunside.sun_analysis.calculator import haversine_m
@@ -41,6 +42,44 @@ def _edge_dist(a: tuple[float, float], b: tuple[float, float], ref_dt: datetime)
 # -------- route builders --------
 
 def make_straight_route(
+    start_lat: float,
+    start_lon: float,
+    end_lat: float,
+    end_lon: float,
+    departure_iso: str,
+    travel_hours: float,
+    n_waypoints: int = 30,
+) -> list[RoutePoint]:
+    departure = _parse_iso(departure_iso)
+    return _make_great_circle_route(
+        (start_lat, start_lon),
+        (end_lat, end_lon),
+        departure,
+        travel_hours=travel_hours,
+        n_waypoints=n_waypoints,
+    )
+
+
+def make_great_circle_route(
+    start_lat: float,
+    start_lon: float,
+    end_lat: float,
+    end_lon: float,
+    departure_iso: str,
+    travel_hours: float,
+    n_waypoints: int = 120,
+) -> list[RoutePoint]:
+    departure = _parse_iso(departure_iso)
+    return _make_great_circle_route(
+        (start_lat, start_lon),
+        (end_lat, end_lon),
+        departure,
+        travel_hours=travel_hours,
+        n_waypoints=n_waypoints,
+    )
+
+
+def make_linear_route(
     start_lat: float,
     start_lon: float,
     end_lat: float,

@@ -6,6 +6,7 @@ const PYODIDE_VERSION = "0.27.2";
 const SUNSIDE_FILES = [
   "sunside/__init__.py",
   "sunside/models.py",
+  "sunside/flight.py",
   "sunside/browser_api.py",
   "sunside/weather.py",
   "sunside/sun_analysis/__init__.py",
@@ -23,6 +24,14 @@ const els = {
   originSuggestions: $("origin-suggestions"), destinationSuggestions: $("destination-suggestions"),
   previewMap: $("preview-map"),
   gpxField: $("gpx-field"), gpx: $("gpx"),
+  gtfsField: $("gtfs-field"),
+  gtfsFeed: $("gtfs-feed"),
+  gtfsBoard: $("gtfs-board"),
+  gtfsAlight: $("gtfs-alight"),
+  gtfsBoardSuggestions: $("gtfs-board-suggestions"),
+  gtfsAlightSuggestions: $("gtfs-alight-suggestions"),
+  gtfsTrip: $("gtfs-trip"),
+  gtfsHint: $("gtfs-hint"),
   od: $("origin-destination"),
   depDate: $("dep-date"), depTime: $("dep-time"),
   durationField: $("duration-field"), duration: $("duration"), durationValue: $("duration-value"),
@@ -90,9 +99,11 @@ function updateProviderUI() {
   selectedPlace.destination = null;
   hideSuggestions();
   els.gpxField.classList.toggle("hidden", v !== "gpx");
-  els.od.classList.toggle("hidden", v === "gpx");
-  els.durationField.classList.toggle("hidden", v === "gpx");
-  els.previewMap.classList.toggle("hidden", v === "gpx");
+  if (els.gtfsField) els.gtfsField.classList.toggle("hidden", v !== "gtfs");
+  els.od.classList.toggle("hidden", v === "gpx" || v === "gtfs");
+  els.durationField.classList.toggle("hidden", v === "gpx" || v === "gtfs");
+  els.previewMap.classList.toggle("hidden", v === "gpx" || v === "gtfs");
+  if (v === "gtfs") ensureGtfsFeeds();
 
   const labels = {
     osm: ["Startbahnhof", "Zielbahnhof", "Berlin", "München"],
@@ -109,9 +120,9 @@ function updateProviderUI() {
   }
 
   els.providerHint.textContent = ({
-    osm: "OSM nutzt echte Gleisgeometrie — am besten für Strecken bis ca. 150 km (z. B. München–Nürnberg). Für längere Strecken Luftlinie wählen.",
+    osm: "OSM nutzt echte Gleisgeometrie — am besten für Strecken bis ca. 150 km (z. B. München–Nürnberg). Für längere Strecken Flugzeug/Grosskreis oder GPX wählen.",
     road: "Auto/Bus nutzt OSRM-Strassenrouting. Gut fuer direkte Auto- und Fernbusstrecken wie Flixbus ohne Zwischenhalte.",
-    straight: "Flugzeug nutzt eine Luftlinie zwischen zwei geocodierten Orten oder Flughäfen.",
+    straight: "Flugzeug nutzt eine Grosskreis-Approximation zwischen zwei geocodierten Orten oder Flughaefen.",
     gpx: "Eigene .gpx-Datei hochladen (z. B. von Komoot, Strava, BRouter).",
   })[v];
 
@@ -431,6 +442,148 @@ async function legacyGeocode(query) {
   return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
 }
 
+// ---- GTFS API client (PWA-only; Streamlit talks to GtfsDatabase directly) ----
+function gtfsApiBase() {
+  // Order: ?gtfs_api=... in URL > localStorage > window.SUNSIDE_GTFS_API > /api
+  const url = new URL(window.location.href);
+  const fromQuery = url.searchParams.get("gtfs_api");
+  if (fromQuery) {
+    localStorage.setItem("sunside_gtfs_api", fromQuery);
+    return fromQuery.replace(/\/$/, "");
+  }
+  const stored = localStorage.getItem("sunside_gtfs_api");
+  if (stored) return stored.replace(/\/$/, "");
+  if (window.SUNSIDE_GTFS_API) return String(window.SUNSIDE_GTFS_API).replace(/\/$/, "");
+  return "/api";
+}
+
+let _gtfsFeedsLoaded = false;
+async function ensureGtfsFeeds() {
+  if (_gtfsFeedsLoaded) return;
+  const base = gtfsApiBase();
+  els.gtfsHint.textContent = `Verbinde zu ${base}...`;
+  try {
+    const r = await fetch(`${base}/gtfs/feeds`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const body = await r.json();
+    if (!body.feeds || !body.feeds.length) {
+      els.gtfsHint.textContent = "Keine GTFS-Feeds am Endpoint vorhanden.";
+      return;
+    }
+    els.gtfsFeed.innerHTML = "";
+    for (const f of body.feeds) {
+      const opt = document.createElement("option");
+      opt.value = f.name;
+      opt.textContent = `${f.name} (${f.start_date || "?"} - ${f.end_date || "?"})`;
+      els.gtfsFeed.appendChild(opt);
+    }
+    els.gtfsHint.textContent = `${body.feeds.length} Feed(s) verfuegbar via ${base}`;
+    _gtfsFeedsLoaded = true;
+    refreshGtfsTrips();
+  } catch (err) {
+    els.gtfsHint.textContent = `Endpoint nicht erreichbar (${base}). Setze ?gtfs_api=https://dein-server in der URL.`;
+  }
+}
+
+async function gtfsSearchStops(feed, q) {
+  if (!q || q.length < 2) return [];
+  const r = await fetch(`${gtfsApiBase()}/gtfs/${encodeURIComponent(feed)}/stops?q=${encodeURIComponent(q)}`);
+  if (!r.ok) throw new Error(`stops HTTP ${r.status}`);
+  return (await r.json()).stops || [];
+}
+
+async function gtfsFindTrips(feed, board, alight, dateIso) {
+  const r = await fetch(`${gtfsApiBase()}/gtfs/${encodeURIComponent(feed)}/trips?board=${encodeURIComponent(board)}&alight=${encodeURIComponent(alight)}&date=${encodeURIComponent(dateIso)}`);
+  if (!r.ok) throw new Error(`trips HTTP ${r.status}`);
+  return (await r.json()).trips || [];
+}
+
+async function gtfsFetchRoute(feed, tripId, board, alight, serviceDate) {
+  const r = await fetch(`${gtfsApiBase()}/gtfs/${encodeURIComponent(feed)}/route?trip_id=${encodeURIComponent(tripId)}&board=${encodeURIComponent(board)}&alight=${encodeURIComponent(alight)}&service_date=${encodeURIComponent(serviceDate)}`);
+  if (!r.ok) throw new Error(`route HTTP ${r.status}`);
+  return (await r.json()).points || [];
+}
+
+const gtfsState = { boardStop: null, alightStop: null, trip: null };
+
+function setupGtfsAutocomplete(input, suggestionsEl, key) {
+  let timer = null;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      gtfsState[key] = null;
+      const q = input.value.trim();
+      if (q.length < 2 || !els.gtfsFeed.value) return suggestionsEl.classList.add("hidden");
+      try {
+        const stops = await gtfsSearchStops(els.gtfsFeed.value, q);
+        suggestionsEl.innerHTML = "";
+        for (const s of stops.slice(0, 12)) {
+          const div = document.createElement("div");
+          div.className = "suggestion";
+          div.textContent = s.name;
+          div.addEventListener("click", () => {
+            input.value = s.name;
+            gtfsState[key] = s;
+            suggestionsEl.classList.add("hidden");
+            refreshGtfsTrips();
+          });
+          suggestionsEl.appendChild(div);
+        }
+        suggestionsEl.classList.toggle("hidden", !stops.length);
+      } catch (err) {
+        console.error("gtfs stop search:", err);
+      }
+    }, 250);
+  });
+  input.addEventListener("blur", () => setTimeout(() => suggestionsEl.classList.add("hidden"), 200));
+}
+
+async function refreshGtfsTrips() {
+  if (!gtfsState.boardStop || !gtfsState.alightStop) {
+    els.gtfsTrip.innerHTML = "<option>Erst Halt + Datum waehlen</option>";
+    els.gtfsTrip.disabled = true;
+    return;
+  }
+  const dateIso = els.depDate.value;
+  els.gtfsTrip.disabled = true;
+  els.gtfsTrip.innerHTML = "<option>Lade...</option>";
+  try {
+    const trips = await gtfsFindTrips(
+      els.gtfsFeed.value,
+      gtfsState.boardStop.stop_id,
+      gtfsState.alightStop.stop_id,
+      dateIso,
+    );
+    if (!trips.length) {
+      els.gtfsTrip.innerHTML = "<option>Keine Verbindung an diesem Tag</option>";
+      gtfsState.trip = null;
+      return;
+    }
+    els.gtfsTrip.innerHTML = "";
+    for (const t of trips) {
+      const opt = document.createElement("option");
+      opt.value = t.trip_id;
+      opt.dataset.payload = JSON.stringify(t);
+      opt.textContent = t.label || `${t.trip_id} ab ${t.board_departure}`;
+      els.gtfsTrip.appendChild(opt);
+    }
+    els.gtfsTrip.disabled = false;
+    gtfsState.trip = trips[0];
+    els.gtfsTrip.addEventListener("change", () => {
+      const sel = els.gtfsTrip.options[els.gtfsTrip.selectedIndex];
+      gtfsState.trip = sel ? JSON.parse(sel.dataset.payload) : null;
+    });
+  } catch (err) {
+    els.gtfsTrip.innerHTML = `<option>Fehler: ${describeError(err)}</option>`;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  if (els.gtfsBoard) setupGtfsAutocomplete(els.gtfsBoard, els.gtfsBoardSuggestions, "boardStop");
+  if (els.gtfsAlight) setupGtfsAutocomplete(els.gtfsAlight, els.gtfsAlightSuggestions, "alightStop");
+  if (els.depDate) els.depDate.addEventListener("change", refreshGtfsTrips);
+});
+
 const OVERPASS_URLS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
@@ -445,7 +598,7 @@ async function fetchOverpassRail(start, end, bufferDeg = 0.25) {
   if (area > 3.0) {
     throw new Error(
       `Strecke zu lang für OSM-Modus (Gebiet ${area.toFixed(1)} °² > 3 °²). ` +
-      "Bitte 'Luftlinie' oder 'Auto/Bus' wählen, oder eine GPX-Datei hochladen."
+      "Bitte 'Flugzeug (Grosskreis)' oder 'Auto/Bus' waehlen, oder eine GPX-Datei hochladen."
     );
   }
   const query = `
@@ -593,6 +746,28 @@ els.form.addEventListener("submit", async (e) => {
 points = browser_api.make_gpx_route(__gpx_text, __departure)
 points
       `);
+    } else if (provider === "gtfs") {
+      if (!gtfsState.trip) throw new Error("Bitte zuerst eine Fahrt auswaehlen.");
+      setStatus("Lade Fahrplan-Polyline...", "info");
+      const apiPoints = await gtfsFetchRoute(
+        els.gtfsFeed.value,
+        gtfsState.trip.trip_id,
+        gtfsState.trip.board_stop_id,
+        gtfsState.trip.alight_stop_id,
+        gtfsState.trip.service_date,
+      );
+      // Convert ISO timestamps to seconds since departure for make_polyline_route
+      const coords = apiPoints.map(p => [p.lat, p.lon]);
+      const t0 = new Date(apiPoints[0].timestamp).getTime();
+      const tN = new Date(apiPoints[apiPoints.length - 1].timestamp).getTime();
+      const durationSeconds = Math.max(60, (tN - t0) / 1000);
+      pyodide.globals.set("__coords", coords);
+      pyodide.globals.set("__departure", apiPoints[0].timestamp);
+      pyodide.globals.set("__duration_seconds", durationSeconds);
+      pyPoints = await pyodide.runPythonAsync(`
+points = browser_api.make_polyline_route(__coords.to_py(), __departure, __duration_seconds)
+points
+      `);
     } else {
       const origin = els.origin.value.trim();
       const destination = els.destination.value.trim();
@@ -633,13 +808,13 @@ points = browser_api.make_polyline_route(__coords.to_py(), __departure, __durati
 points
   `);
       } else {
-  // straight / flight
+  // great-circle / flight
         pyodide.globals.set("__sl", start[0]); pyodide.globals.set("__so", start[1]);
         pyodide.globals.set("__el", end[0]);   pyodide.globals.set("__eo", end[1]);
         pyodide.globals.set("__departure", departureIso);
         pyodide.globals.set("__th", travelHours);
         pyPoints = await pyodide.runPythonAsync(`
-points = browser_api.make_straight_route(__sl, __so, __el, __eo, __departure, __th)
+points = browser_api.make_great_circle_route(__sl, __so, __el, __eo, __departure, __th)
 points
         `);
       }

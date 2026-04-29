@@ -84,3 +84,28 @@ def test_analyze_segment_point_is_p1():
     p2 = _pt(48.1, 11.0, hour=10)
     seg = analyze_segment(p1, p2)
     assert seg.point is p1
+
+
+def test_analyze_segment_tunnel_overrides_sun():
+    # Daytime in Munich, but flagged as tunnel: must report "tunnel"
+    p1 = RoutePoint(lat=48.0, lon=11.0,
+                    timestamp=datetime(2024, 6, 21, 12, 0, tzinfo=timezone.utc),
+                    in_tunnel=True)
+    p2 = RoutePoint(lat=48.1, lon=11.0,
+                    timestamp=datetime(2024, 6, 21, 12, 5, tzinfo=timezone.utc),
+                    in_tunnel=True)
+    seg = analyze_segment(p1, p2)
+    assert seg.sun_side == "tunnel"
+    assert seg.intensity_factor == 0.0
+
+
+def test_analyze_segment_tunnel_one_endpoint():
+    # If either endpoint is in a tunnel, the segment counts as tunnel
+    p1 = RoutePoint(lat=48.0, lon=11.0,
+                    timestamp=datetime(2024, 6, 21, 12, 0, tzinfo=timezone.utc),
+                    in_tunnel=False)
+    p2 = RoutePoint(lat=48.1, lon=11.0,
+                    timestamp=datetime(2024, 6, 21, 12, 5, tzinfo=timezone.utc),
+                    in_tunnel=True)
+    seg = analyze_segment(p1, p2)
+    assert seg.sun_side == "tunnel"

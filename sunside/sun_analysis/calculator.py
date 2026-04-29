@@ -45,13 +45,20 @@ def analyze_segment(p1: RoutePoint, p2: RoutePoint) -> SegmentAnalysis:
     brng = bearing(p1, p2)
     sun_az, sun_el = sun_position(p1)
 
-    if sun_el < 0:
+    if p1.in_tunnel or p2.in_tunnel:
+        side = "tunnel"
+        intensity = 0.0
+    elif sun_el < 0:
         side = "night"
+        intensity = 0.0
     else:
         # delta: angle of sun relative to travel direction
         # 0–180 = sun is to the right, 180–360 = sun is to the left
         delta = (sun_az - brng) % 360
         side = "rechts" if delta < 180 else "links"
+        # Solar intensity scales roughly with sin(elevation):
+        # noon (90 deg) -> 1.0, 30 deg -> 0.5, horizon (0 deg) -> 0.0
+        intensity = max(0.0, sin(radians(sun_el)))
 
     return SegmentAnalysis(
         point=p1,
@@ -59,4 +66,5 @@ def analyze_segment(p1: RoutePoint, p2: RoutePoint) -> SegmentAnalysis:
         sun_azimuth=round(sun_az, 1),
         sun_elevation=round(sun_el, 1),
         sun_side=side,
+        intensity_factor=round(intensity, 4),
     )

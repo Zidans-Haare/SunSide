@@ -4,3 +4,8 @@ __pycache__/
 .env
 .pytest_cache/
 data/routes/*.gpx
+data/gtfs/*.zip
+data/gtfs/*.sqlite
+data/gtfs/*.sqlite.bak
+data/gtfs/*.tmp
+data/http_cache.sqlite

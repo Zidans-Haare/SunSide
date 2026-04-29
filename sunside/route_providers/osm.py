@@ -9,6 +9,7 @@ from math import inf
 
 import requests
 
+from sunside.http_cache import cached_request
 from sunside.models import RoutePoint
 from sunside.route_providers.base import RouteProvider
 from sunside.route_providers.nominatim import geocode_place
@@ -72,7 +73,7 @@ class OsmRailProvider(RouteProvider):
         departure: datetime,
         travel_hours: float | None = None,
     ) -> list[RoutePoint]:
-        nodes, graph = self._fetch_rail_graph(start, end)
+        nodes, graph, tunnel_nodes = self._fetch_rail_graph(start, end)
 
         start_node = self._nearest_node(nodes, start)
         end_node = self._nearest_node(nodes, end)
@@ -81,13 +82,13 @@ class OsmRailProvider(RouteProvider):
         if len(path) < 2:
             raise ValueError("Keine nutzbare OSM-Gleisroute gefunden")
 
-        return self._path_to_route_points(nodes, path, departure, travel_hours)
+        return self._path_to_route_points(nodes, path, departure, travel_hours, tunnel_nodes)
 
     def _fetch_rail_graph(
         self,
         start: tuple[float, float],
         end: tuple[float, float],
-    ) -> tuple[dict[int, tuple[float, float]], dict[int, list[tuple[int, float]]]]:
+    ) -> tuple[dict[int, tuple[float, float]], dict[int, list[tuple[int, float]]], set[int]]:
         south, west, north, east = self._bbox(start, end)
         bbox_area = (north - south) * (east - west)
         if bbox_area > self.max_bbox_area_deg2:
@@ -107,7 +108,7 @@ class OsmRailProvider(RouteProvider):
         payload = self._run_overpass_query(query)
 
         nodes: dict[int, tuple[float, float]] = {}
-        ways: list[list[int]] = []
+        ways: list[tuple[list[int], bool]] = []
 
         for element in payload.get("elements", []):
             if element.get("type") == "node":
@@ -115,28 +116,39 @@ class OsmRailProvider(RouteProvider):
             elif element.get("type") == "way":
                 refs = [ref for ref in element.get("nodes", []) if isinstance(ref, int)]
                 if len(refs) >= 2:
-                    ways.append(refs)
+                    tags = element.get("tags", {}) or {}
+                    is_tunnel = (
+                        tags.get("tunnel") in {"yes", "building_passage", "culvert", "avalanche_protector"}
+                        or tags.get("covered") == "yes"
+                        or tags.get("location") == "underground"
+                    )
+                    ways.append((refs, is_tunnel))
 
         graph: dict[int, list[tuple[int, float]]] = {}
-        for way in ways:
+        tunnel_nodes: set[int] = set()
+        for way, is_tunnel in ways:
             for current, next_node in zip(way, way[1:]):
                 if current not in nodes or next_node not in nodes:
                     continue
                 distance = _distance_m(nodes[current], nodes[next_node])
                 graph.setdefault(current, []).append((next_node, distance))
                 graph.setdefault(next_node, []).append((current, distance))
+                if is_tunnel:
+                    tunnel_nodes.add(current)
+                    tunnel_nodes.add(next_node)
 
         if not graph:
             raise ValueError("Keine OSM-Gleisdaten im Suchbereich gefunden")
 
         connected_nodes = {node_id: nodes[node_id] for node_id in graph}
-        return connected_nodes, graph
+        return connected_nodes, graph, tunnel_nodes
 
     def _run_overpass_query(self, query: str) -> dict:
         last_error = None
         for url in OVERPASS_URLS:
             try:
-                response = requests.post(
+                response = cached_request(
+                    "POST",
                     url,
                     data={"data": query},
                     headers={"User-Agent": "SunSide/1.0"},
@@ -217,7 +229,9 @@ class OsmRailProvider(RouteProvider):
         path: list[int],
         departure: datetime,
         travel_hours: float | None,
+        tunnel_nodes: set[int] | None = None,
     ) -> list[RoutePoint]:
+        tunnel_nodes = tunnel_nodes or set()
         coordinates = [nodes[node_id] for node_id in path]
         segment_lengths = [
             _distance_m(coordinates[i], coordinates[i + 1])
@@ -234,11 +248,17 @@ class OsmRailProvider(RouteProvider):
 
         accumulated_m = 0.0
         points = []
-        for index, (lat, lon) in enumerate(coordinates):
+        for index, node_id in enumerate(path):
+            lat, lon = nodes[node_id]
             if index > 0:
                 accumulated_m += segment_lengths[index - 1]
             fraction = accumulated_m / total_m
             timestamp = departure + timedelta(seconds=fraction * travel_seconds)
-            points.append(RoutePoint(lat=lat, lon=lon, timestamp=timestamp))
+            points.append(RoutePoint(
+                lat=lat,
+                lon=lon,
+                timestamp=timestamp,
+                in_tunnel=node_id in tunnel_nodes,
+            ))
 
         return points

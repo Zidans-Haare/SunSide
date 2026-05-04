@@ -19,7 +19,7 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Train Sun Side Advisor")
 
-st.title("🚆🌞 Train Sun Side Advisor")
+st.title("Train Sun Side Advisor")
 
 # 1. Eingabemaske
 with st.form(key="input_form"):
@@ -90,7 +90,7 @@ if submit:
 
             warn = ""
             if abs(delta - 90) < 20 or abs(delta - 270) < 20:
-                warn = "⚠️ Sonne fast vorne/hinten"
+                warn = "Sonne fast vorne/hinten"
 
             # Simulation
             steps = int((distance_km / 120) * 2)  # alle 30min

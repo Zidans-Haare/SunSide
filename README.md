@@ -2,7 +2,7 @@
 
 **Auf welcher Seite sitze ich im Schatten?**
 
-Gibt eine Links/Rechts-Empfehlung für Zug, Bus und Flugzeug — basierend auf Sonnenstand, Streckenführung und optionaler Bewölkung. Läuft als **Progressive Web App direkt im Browser** (keine Installation, kein Account).
+Gibt eine Links/Rechts-Empfehlung fuer Zug, Bus und Flugzeug - basierend auf Sonnenstand, Streckenfuehrung und optionaler Bewoelkung. Laeuft als **mobile-optimierte Progressive Web App direkt im Browser** (keine Installation, kein Account).
 
 [![CI](https://github.com/Zidans-Haare/SunSide/actions/workflows/ci.yml/badge.svg)](https://github.com/Zidans-Haare/SunSide/actions/workflows/ci.yml)
 
@@ -10,22 +10,22 @@ Gibt eine Links/Rechts-Empfehlung für Zug, Bus und Flugzeug — basierend auf S
 
 ## Schnellstart
 
-### Browser-App (empfohlen — keine Installation nötig)
+### Browser-App
 
 ```bash
-# Repo klonen und lokalen Server starten — das war's
+# Repo klonen und lokalen Server starten
 git clone https://github.com/Zidans-Haare/SunSide.git && cd SunSide
 python3 -m http.server 8000
-# → http://localhost:8000
+# http://localhost:8000
 ```
 
-### Setup-Wizard (Streamlit-UI, .env, Deployment konfigurieren)
+### Setup-Wizard (.env und Deployment konfigurieren)
 
 ```bash
 ./setup.sh
 ```
 
-Der Wizard fragt nach Modus (Browser / Streamlit), legt `.env` an und startet den Server.
+Der Wizard legt `.env` an und startet die Browser-PWA bzw. den passenden Serverprozess.
 
 ### Auf einem nackten Server (Debian/Ubuntu)
 
@@ -41,12 +41,12 @@ curl -fsSL https://raw.githubusercontent.com/Zidans-Haare/SunSide/main/setup.sh 
 Eingabe: Modus, Start, Ziel, Datum/Zeit (oder konkreter Trip aus dem Fahrplan)
     │
     ▼
-Schicht 1 — Route-Provider
+Schicht 1 - Route-Provider
     Echte Gleisgeometrie (OSM Overpass) · Strassenrouting (OSRM)
     Flixbus-Fahrplan + Polyline (lokale GTFS-DB) · GPX-Upload · Grosskreis
     │
     ▼
-Schicht 2 — Sonnenanalyse
+Schicht 2 - Sonnenanalyse
     Bearing je Segment → Sonnenazimut + Sonnenhoehe (astral)
     → links / rechts / Nacht / Tunnel / Gelaendeschatten
     Optional gewichtet nach Bewoelkung (Open-Meteo) und/oder
@@ -58,7 +58,7 @@ Schicht 2 — Sonnenanalyse
 Ausgabe: "Sitz links - ca. 88 % im Schatten"
 ```
 
-Die Python-Logik laeuft entweder als Streamlit-App (Desktop, mit Flixbus-GTFS und Karte) oder via [Pyodide](https://pyodide.org/) im Browser (PWA, ohne Server).
+Die aktive UI ist die Browser-PWA. Die Python-Logik laeuft dort via [Pyodide](https://pyodide.org/); HTTP-Zugriffe passieren im JavaScript-Layer.
 
 ---
 
@@ -72,7 +72,7 @@ SunSide/
 ├── manifest.webmanifest        # PWA-Manifest
 ├── assets/                     # Icons
 │
-├── app.py                      # Streamlit-App (Desktop, mit Flixbus-GTFS + Karte)
+├── app.py                      # Legacy-Streamlit-App (nicht mehr primaere UI)
 │
 ├── sunside/                    # Python-Kernlogik
 │   ├── models.py               # RoutePoint (inkl. in_tunnel), SegmentAnalysis, Recommendation
@@ -111,9 +111,9 @@ SunSide/
 
 ---
 
-## Reisemodi (Streamlit-App)
+## Reisemodi (Browser-PWA)
 
-Die Sidebar laesst dich zwischen fuenf Modi waehlen — jeder hat seine eigene Provider-Kette:
+Die PWA laesst dich zwischen fuenf Modi waehlen - jeder hat seine eigene Provider-Kette:
 
 | Modus | Provider | Quelle |
 |-------|----------|--------|
@@ -214,35 +214,33 @@ clear_cache()
 
 ## GTFS-Feeds einrichten (Bus + Rail)
 
-```bash
-# Einmalig: Feed importieren (~35 s, erzeugt ~360 MB SQLite)
-mkdir -p data/gtfs
-curl -L https://gtfs.gis.flix.tech/gtfs_generic_eu.zip -o /tmp/flixbus.zip
-PYTHONPATH=. python scripts/gtfs_import.py --zip /tmp/flixbus.zip --db data/gtfs/flixbus.sqlite
-```
-
-Weitere Feeds (Beispiele, alle frei verfuegbar):
+Einfachster Weg: `setup.sh` fragt waehrend der Installation, ob Flixbus und/oder
+DB geladen werden sollen. Manuell jederzeit nachladen:
 
 ```bash
-# Rail-GTFS / Deutschland (gtfs.de aggregiert Nah- und Fernverkehr,
-# je nach Feed-Stand inkl. ICE/IC/RJ-Abschnitte und Shapes)
-curl -L https://download.gtfs.de/germany/free/latest.zip -o /tmp/db.zip
-PYTHONPATH=. python scripts/gtfs_import.py --zip /tmp/db.zip --db data/gtfs/db.sqlite --name db_rail
-
-# OeBB / Railjet (Open Data)
-# Den aktuellen GTFS-Link beim Anbieter holen, dann analog importieren:
-# PYTHONPATH=. python scripts/gtfs_import.py --zip /tmp/oebb.zip --db data/gtfs/oebb.sqlite --name oebb
+PYTHONPATH=. python scripts/fetch_gtfs.py flixbus    # Flixbus EU
+PYTHONPATH=. python scripts/fetch_gtfs.py db         # Deutsche Bahn (gtfs.de)
+PYTHONPATH=. python scripts/fetch_gtfs.py --url https://example.com/oebb.zip --name oebb
 ```
 
-Alle `*.sqlite` unter `data/gtfs/` werden automatisch erkannt. Die Streamlit-
-App zeigt einen Feed-Wechsler, sobald mehrere DBs vorhanden sind.
+Das Skript laedt nach `data/gtfs/<name>.zip` (vorhandener Zip wird wiederverwendet,
+ausser `--force`) und ruft anschliessend den Importer auf. Ergebnis:
+`data/gtfs/<name>.sqlite` (~360 MB fuer Flixbus, ~35 s).
+
+Wer den Importer direkt fuer ein eigenes Zip nutzen will:
+
+```bash
+PYTHONPATH=. python scripts/gtfs_import.py --zip pfad/feed.zip --db data/gtfs/feed.sqlite --name feed
+```
+
+Alle `*.sqlite` unter `data/gtfs/` werden vom GTFS-API-Server automatisch erkannt. Die PWA zeigt einen Feed-Wechsler, sobald mehrere Feeds am Endpoint vorhanden sind.
 
 Ziel: Rail-GTFS soll fuer Zuege immer bevorzugt werden, wenn ein konkreter Trip
 verfuegbar ist. Dann kommen Abfahrt, Ankunft und Zwischenhalte aus dem Fahrplan;
 OSM-Gleisgeometrie bleibt fuer Kurven/Tunnel und als Fallback erhalten.
 
 Auf dem Server laesst sich der Feed automatisch frisch halten (Cron, atomarer
-Swap) — siehe `deploy/server-setup.md` Abschnitt 8 und `deploy/update_gtfs.sh`.
+Swap) - siehe `deploy/server-setup.md` Abschnitt 8 und `deploy/update_gtfs.sh`.
 
 ---
 
@@ -276,11 +274,11 @@ anderen Modi (Zug, Auto, Flugzeug, GPX) funktionieren ohne Server.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 PYTHONPATH=. pytest tests/ -q
-PYTHONPATH=. streamlit run app.py # Desktop-UI mit Flixbus-GTFS
+python3 -m http.server 8000
 ```
 
 Die `scripts/examples/`-Skripte sind handgepruefte Smoke-Tests fuer reale
-Strecken (Villach↔Padova, Udine↔Villach, Konvergenz-Sweeps) — gut als
+Strecken (Villach-Padova, Udine-Villach, Konvergenz-Sweeps) - gut als
 Ausgangspunkt fuer eigene Experimente.
 
 ---

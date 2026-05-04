@@ -2,9 +2,9 @@
 # SunSide GTFS auto-update.
 #
 # Downloads a GTFS feed, imports it into a fresh SQLite DB, then atomically
-# swaps it in. Safe to run while the Streamlit app is live -
-# the swap is a single rename(2), and the app re-opens the DB on its next
-# cache miss (TTL 1h).
+# swaps it in. Safe to run while the GTFS API server is live: the swap is a
+# single rename(2), and new requests open the updated DB after process/cache
+# refresh.
 #
 # Cron (every Wednesday at 03:17 UTC):
 #   17 3 * * 3 /opt/sunside/deploy/update_gtfs.sh >> /var/log/sunside_gtfs.log 2>&1

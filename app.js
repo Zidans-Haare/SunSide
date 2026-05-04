@@ -19,6 +19,7 @@ const SUNSIDE_FILES = [
 const $ = (id) => document.getElementById(id);
 const els = {
   form: $("form"), provider: $("provider"), providerHint: $("provider-hint"),
+  emptyState: $("empty-state"),
   origin: $("origin"), destination: $("destination"),
   originLabel: $("origin-label"), destinationLabel: $("destination-label"),
   originSuggestions: $("origin-suggestions"), destinationSuggestions: $("destination-suggestions"),
@@ -35,13 +36,22 @@ const els = {
   od: $("origin-destination"),
   depDate: $("dep-date"), depTime: $("dep-time"),
   durationField: $("duration-field"), duration: $("duration"), durationValue: $("duration-value"),
-  weather: $("weather"),
+  interval: $("interval"), weather: $("weather"), intensity: $("intensity"),
+  terrain: $("terrain"), converged: $("converged"),
   submit: $("submit"), status: $("status"),
   result: $("result"), resultSide: $("result-side"), resultPct: $("result-pct"),
   resultMeta: $("result-meta"), recommendation: $("recommendation"),
+  metricInterval: $("metric-interval"), metricSegments: $("metric-segments"),
+  metricClouds: $("metric-clouds"), metricSun: $("metric-sun"),
+  metricTunnel: $("metric-tunnel"), metricTerrain: $("metric-terrain"),
+  tracePanel: $("trace-panel"), traceTable: $("trace-table")?.querySelector("tbody"),
   segTable: $("segments-table").querySelector("tbody"),
   runtimePill: $("runtime-pill"),
   installBtn: $("install-btn"),
+  updateBanner: $("update-banner"),
+  updateBtn: $("update-btn"),
+  updateDismiss: $("update-dismiss"),
+  offlinePill: $("offline-pill"),
 };
 
 let pyodide = null;
@@ -50,6 +60,7 @@ let routeLayer = null;
 let segmentLayer = null;
 let previewMap = null;
 let previewLayer = null;
+const TERRAIN_COORD_LIMIT = 8000;
 const placeCache = new Map();
 const optionState = { origin: [], destination: [] };
 const selectedPlace = { origin: null, destination: null };
@@ -80,6 +91,35 @@ function setSubmit(text, enabled) {
   els.submit.disabled = !enabled;
 }
 
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
+function isCoarsePointer() {
+  return window.matchMedia?.("(pointer: coarse)").matches === true;
+}
+
+function isStandalonePwa() {
+  return window.matchMedia?.("(display-mode: standalone)").matches === true
+    || window.navigator.standalone === true;
+}
+
+function formatInterval(metres) {
+  if (metres == null || Number.isNaN(Number(metres))) return "-";
+  const value = Number(metres);
+  if (value >= 1000) return `${(value / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km`;
+  return `${Math.round(value).toLocaleString("de-DE")} m`;
+}
+
+function formatPct(value) {
+  return value == null ? "-" : `${Number(value).toFixed(0)} %`;
+}
+
+function analysisInterval() {
+  if (!els.interval || els.interval.value === "auto" || els.converged.checked) return null;
+  return Number.parseInt(els.interval.value, 10);
+}
+
 // Initialize date/time fields
 (function initDateTime() {
   const now = new Date();
@@ -90,6 +130,10 @@ function setSubmit(text, enabled) {
 
 els.duration.addEventListener("input", () => {
   els.durationValue.textContent = parseFloat(els.duration.value).toFixed(1);
+});
+
+els.converged.addEventListener("change", () => {
+  els.interval.disabled = els.converged.checked;
 });
 
 els.provider.addEventListener("change", updateProviderUI);
@@ -106,9 +150,9 @@ function updateProviderUI() {
   if (v === "gtfs") ensureGtfsFeeds();
 
   const labels = {
-    osm: ["Startbahnhof", "Zielbahnhof", "Berlin", "München"],
-    road: ["Startort", "Zielort", "Berlin ZOB", "München ZOB"],
-    straight: ["Startort oder Flughafen", "Zielort oder Flughafen", "Berlin BER", "München Flughafen"],
+    osm: ["Startbahnhof", "Zielbahnhof", "Berlin", "Muenchen"],
+    road: ["Startort", "Zielort", "Berlin ZOB", "Muenchen ZOB"],
+    straight: ["Startort oder Flughafen", "Zielort oder Flughafen", "Berlin BER", "Muenchen Flughafen"],
   }[v];
   if (labels) {
     els.originLabel.textContent = labels[0];
@@ -120,10 +164,11 @@ function updateProviderUI() {
   }
 
   els.providerHint.textContent = ({
-    osm: "OSM nutzt echte Gleisgeometrie — am besten für Strecken bis ca. 150 km (z. B. München–Nürnberg). Für längere Strecken Flugzeug/Grosskreis oder GPX wählen.",
-    road: "Auto/Bus nutzt OSRM-Strassenrouting. Gut fuer direkte Auto- und Fernbusstrecken wie Flixbus ohne Zwischenhalte.",
-    straight: "Flugzeug nutzt eine Grosskreis-Approximation zwischen zwei geocodierten Orten oder Flughaefen.",
-    gpx: "Eigene .gpx-Datei hochladen (z. B. von Komoot, Strava, BRouter).",
+    osm: "Gleisgeometrie via OSM Overpass.",
+    road: "Strassenrouting via OSRM.",
+    gtfs: "Konkrete Fahrt aus dem GTFS-API-Endpoint.",
+    straight: "Grosskreis zwischen zwei geocodierten Punkten.",
+    gpx: "Eigene GPX-Route mit Zeitmodell.",
   })[v];
 
   // Only refresh if user already typed something (avoid hammering Nominatim on init)
@@ -149,6 +194,13 @@ els.destination.addEventListener("keydown", (event) => handleSuggestionKey(event
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".autocomplete")) hideSuggestions();
 });
+
+const refreshMapSizes = debounce(() => {
+  if (previewMap) previewMap.invalidateSize();
+  if (map) map.invalidateSize();
+}, 180);
+window.addEventListener("orientationchange", refreshMapSizes);
+window.visualViewport?.addEventListener("resize", refreshMapSizes);
 
 // ---- HTTP wrappers (CORS-friendly public endpoints) ----
 function normalizeText(value) {
@@ -311,6 +363,11 @@ function renderSuggestionList(side, items, { visible = true } = {}) {
       event.preventDefault();
       chooseSuggestion(side, item);
     });
+    button.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse") return;
+      event.preventDefault();
+      chooseSuggestion(side, item);
+    });
     target.appendChild(button);
   }
 
@@ -318,10 +375,12 @@ function renderSuggestionList(side, items, { visible = true } = {}) {
 }
 
 function chooseSuggestion(side, item) {
+  const input = inputForSide(side);
   selectedPlace[side] = item;
-  inputForSide(side).value = item.label;
+  input.value = item.label;
   optionState[side] = [item, ...optionState[side].filter((candidate) => candidate !== item)];
   hideSuggestions(side);
+  if (isCoarsePointer()) input.blur();
   refreshSuggestionsAndPreview({ showLists: false });
 }
 
@@ -401,8 +460,12 @@ function debounce(fn, delay) {
 function renderPreview(start, end) {
   els.previewMap.classList.remove("hidden");
   if (!previewMap) {
-    previewMap = L.map("preview-map", { zoomControl: false, attributionControl: false });
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(previewMap);
+    previewMap = L.map("preview-map", { zoomControl: false, attributionControl: false, preferCanvas: true });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      updateWhenIdle: true,
+      keepBuffer: 1,
+    }).addTo(previewMap);
   }
   if (previewLayer) previewLayer.remove();
   const dashed = els.provider.value !== "straight";
@@ -442,7 +505,7 @@ async function legacyGeocode(query) {
   return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
 }
 
-// ---- GTFS API client (PWA-only; Streamlit talks to GtfsDatabase directly) ----
+// ---- GTFS API client (PWA-only) ----
 function gtfsApiBase() {
   // Order: ?gtfs_api=... in URL > localStorage > window.SUNSIDE_GTFS_API > /api
   const url = new URL(window.location.href);
@@ -569,10 +632,10 @@ async function refreshGtfsTrips() {
     }
     els.gtfsTrip.disabled = false;
     gtfsState.trip = trips[0];
-    els.gtfsTrip.addEventListener("change", () => {
+    els.gtfsTrip.onchange = () => {
       const sel = els.gtfsTrip.options[els.gtfsTrip.selectedIndex];
       gtfsState.trip = sel ? JSON.parse(sel.dataset.payload) : null;
-    });
+    };
   } catch (err) {
     els.gtfsTrip.innerHTML = `<option>Fehler: ${describeError(err)}</option>`;
   }
@@ -665,6 +728,32 @@ async function fetchWeatherSamples(samples) {
   return out;
 }
 
+function chunked(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+async function fetchElevationSamples(coords) {
+  const out = [];
+  for (const chunk of chunked(coords, 100)) {
+    const url = new URL("https://api.open-meteo.com/v1/elevation");
+    url.search = new URLSearchParams({
+      latitude: chunk.map((c) => c.lat).join(","),
+      longitude: chunk.map((c) => c.lon).join(","),
+    }).toString();
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Hoehendaten HTTP ${r.status}`);
+    const data = await r.json();
+    const elevations = data?.elevation || [];
+    chunk.forEach((coord, index) => {
+      const elevation = elevations[index];
+      if (elevation != null) out.push({ lat: coord.lat, lon: coord.lon, elevation });
+    });
+  }
+  return out;
+}
+
 // ---- Pyodide bootstrap ----
 async function loadSunside() {
   setStatus("Lade Pyodide…", "info");
@@ -726,12 +815,15 @@ els.form.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!pyodide) return;
   els.result.classList.add("hidden");
+  els.emptyState.classList.remove("hidden");
   setSubmit("Berechne…", false);
 
   try {
     const provider = els.provider.value;
     const departureIso = `${els.depDate.value}T${els.depTime.value}:00`;
     const travelHours = parseFloat(els.duration.value);
+    const intervalM = analysisInterval();
+    const useConverged = els.converged.checked;
 
     // Build route in Python ----------------------------------------------
     let pyPoints;
@@ -832,17 +924,58 @@ samples
       weatherSamples = await fetchWeatherSamples(samplesJs);
     }
 
+    // Optional terrain pre-fetch ----------------------------------------
+    let terrainSamples = null;
+    if (els.terrain.checked) {
+      setStatus("Ermittle Hoehenpunkte…", "info");
+      pyodide.globals.set("__interval_m", intervalM || 0);
+      pyodide.globals.set("__converged", useConverged ? 1 : 0);
+      const terrainCoordsPy = await pyodide.runPythonAsync(`
+coords = browser_api.elevation_points_for_route(
+    points,
+    interval_m=None if __interval_m <= 0 else int(__interval_m),
+    converged=bool(__converged),
+)
+coords
+      `);
+      const terrainCoords = terrainCoordsPy.toJs({ dict_converter: Object.fromEntries });
+      if (terrainCoords.length > TERRAIN_COORD_LIMIT) {
+        throw new Error(
+          `Gelaendeabfrage zu gross (${terrainCoords.length.toLocaleString("de-DE")} Hoehenpunkte). ` +
+          "Bitte groesseres Messintervall waehlen oder Konvergenzmodus deaktivieren."
+        );
+      }
+      if (terrainCoords.length) {
+        setStatus(`Hole Hoehendaten (${terrainCoords.length.toLocaleString("de-DE")} Punkte)…`, "info");
+        terrainSamples = await fetchElevationSamples(terrainCoords);
+      } else {
+        terrainSamples = [];
+      }
+    }
+
     // Run analysis -------------------------------------------------------
     setStatus("Analysiere Sonnenstand…", "info");
     pyodide.globals.set("__weather", weatherSamples);
+    pyodide.globals.set("__terrain", terrainSamples);
+    pyodide.globals.set("__interval_m", intervalM || 0);
+    pyodide.globals.set("__use_intensity", els.intensity.checked ? 1 : 0);
+    pyodide.globals.set("__converged", useConverged ? 1 : 0);
     const resultPy = await pyodide.runPythonAsync(`
-result = browser_api.run_analysis(points, weather_samples=__weather)
+result = browser_api.run_analysis(
+    points,
+    interval_m=None if __interval_m <= 0 else int(__interval_m),
+    weather_samples=__weather,
+    use_intensity=bool(__use_intensity),
+    terrain_samples=__terrain,
+    converged=bool(__converged),
+)
 result
     `);
     const result = resultPy.toJs({ dict_converter: Object.fromEntries });
 
     renderResult(result, els.form.pref.value);
-    setStatus("", null);
+    if (result.terrain_warning) setStatus(result.terrain_warning, "warn");
+    else setStatus("", null);
   } catch (err) {
     console.error("analysis failed:", err);
     setStatus(`Fehler: ${describeError(err)}`, "error");
@@ -853,18 +986,17 @@ result
 
 // ---- Render ----
 function renderResult(result, pref) {
+  els.emptyState.classList.add("hidden");
   els.result.classList.remove("hidden");
+  const segmentCount = result.segments?.length || 0;
+  const trace = result.convergence_trace || [];
 
-  // recommendation
   if (result.is_night) {
     els.resultSide.textContent = "Nachtfahrt";
-    els.resultPct.textContent = "Keine Sonnenempfehlung nötig.";
-    els.resultMeta.textContent = "";
-    els.recommendation.style.background = "#1e293b";
-    els.recommendation.style.color = "#f1f5f9";
+    els.resultPct.textContent = "Keine Sonnenempfehlung noetig.";
+    els.recommendation.style.borderTopColor = "#475569";
   } else {
-    els.recommendation.style.background = "";
-    els.recommendation.style.color = "";
+    els.recommendation.style.borderTopColor = "";
     if (pref === "Schatten") {
       els.resultSide.textContent = result.shade_side;
       els.resultPct.textContent = `≈ ${result.shade_pct.toFixed(0)} % im Schatten`;
@@ -872,70 +1004,175 @@ function renderResult(result, pref) {
       els.resultSide.textContent = result.sun_side;
       els.resultPct.textContent = `≈ ${result.sun_pct.toFixed(0)} % in der Sonne`;
     }
-    const km = (result.auto_interval_m >= 1000)
-      ? `${(result.auto_interval_m / 1000).toFixed(1)} km`
-      : `${result.auto_interval_m} m`;
-    let meta = `Messintervall: ${km} · ${result.segments.length} Segmente`;
-    if (result.weather_adjusted && result.mean_cloud_cover_pct != null) {
-      meta += ` · ${result.mean_cloud_cover_pct.toFixed(0)} % Wolken Ø`;
-    }
-    if (result.low_direct_sun) meta += " · viel Bewölkung — Sitzseite weniger entscheidend";
-    els.resultMeta.textContent = meta;
   }
 
+  const meta = [
+    formatInterval(result.auto_interval_m),
+    `${segmentCount.toLocaleString("de-DE")} Segmente`,
+  ];
+  if (trace.length) meta.push(`${trace.length} Iterationen`);
+  if (result.weather_adjusted && result.mean_cloud_cover_pct != null) meta.push(`${result.mean_cloud_cover_pct.toFixed(0)} % Wolken`);
+  if (result.intensity_adjusted && result.mean_sun_elevation != null) meta.push(`${result.mean_sun_elevation.toFixed(1)}° Sonnenhoehe`);
+  if (result.low_direct_sun) meta.push("geringe direkte Sonne");
+  els.resultMeta.textContent = meta.join(" · ");
+
+  els.metricInterval.textContent = formatInterval(result.auto_interval_m);
+  els.metricSegments.textContent = segmentCount.toLocaleString("de-DE");
+  els.metricClouds.textContent = result.weather_adjusted ? formatPct(result.mean_cloud_cover_pct) : "Aus";
+  els.metricSun.textContent = result.intensity_adjusted && result.mean_sun_elevation != null
+    ? `${result.mean_sun_elevation.toFixed(1)}°`
+    : "Normal";
+  els.metricTunnel.textContent = formatPct(result.tunnel_pct || 0);
+  els.metricTerrain.textContent = result.terrain_adjusted ? formatPct(result.terrain_pct || 0) : "Aus";
+
   renderMap(result);
+  renderTrace(trace);
   renderTable(result.segments);
-  els.result.scrollIntoView({ behavior: "smooth", block: "start" });
+  els.result.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+}
+
+function segmentKey(segment) {
+  if (segment.terrain_shaded) return "terrain";
+  return segment.sun_side || "night";
+}
+
+function segmentColor(key) {
+  return ({
+    links: "#2563eb",
+    rechts: "#e85d04",
+    night: "#475569",
+    tunnel: "#1f2937",
+    terrain: "#10845f",
+  })[key] || "#64748b";
+}
+
+function segmentLabel(key) {
+  return ({
+    links: "Sonne links",
+    rechts: "Sonne rechts",
+    night: "Nacht",
+    tunnel: "Tunnel",
+    terrain: "Gelaendeschatten",
+  })[key] || key;
 }
 
 function renderMap(result) {
   if (!map) {
-    map = L.map("map");
+    map = L.map("map", { preferCanvas: true });
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: "© OpenStreetMap",
+      maxZoom: 19,
+      attribution: "© OpenStreetMap",
+      updateWhenIdle: true,
+      keepBuffer: 1,
     }).addTo(map);
   }
   if (routeLayer) routeLayer.remove();
   if (segmentLayer) segmentLayer.remove();
 
   const polyline = result.polyline.map((p) => [p[0], p[1]]);
-  routeLayer = L.polyline(polyline, { color: "#2563eb", weight: 4, opacity: 0.7 }).addTo(map);
+  routeLayer = L.polyline(polyline, { color: "#94a3b8", weight: 3, opacity: 0.35 }).addTo(map);
 
-  segmentLayer = L.layerGroup(
-    result.segments.map((s) => {
-      const color = s.sun_side === "rechts" ? "#f97316" : (s.sun_side === "links" ? "#2563eb" : "#6b7280");
-      return L.circleMarker([s.lat, s.lon], {
-        radius: 4, color, fillColor: color, fillOpacity: 0.85, weight: 1,
-      }).bindTooltip(`${new Date(s.time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} · ${s.sun_side}`);
-    })
-  ).addTo(map);
+  const layers = [];
+  const segments = result.segments || [];
+  let currentKey = null;
+  let currentCoords = [];
 
-  map.fitBounds(routeLayer.getBounds(), { padding: [20, 20] });
+  function addRun(key, coords) {
+    if (coords.length < 2) return;
+    layers.push(L.polyline(coords, {
+      color: segmentColor(key),
+      weight: 5,
+      opacity: 0.88,
+      lineCap: "round",
+      lineJoin: "round",
+    }).bindTooltip(segmentLabel(key)));
+  }
+
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index];
+    const key = segmentKey(segment);
+    const start = [segment.lat, segment.lon];
+    const end = index + 1 < segments.length
+      ? [segments[index + 1].lat, segments[index + 1].lon]
+      : (polyline[polyline.length - 1] || start);
+
+    if (currentKey === null) {
+      currentKey = key;
+      currentCoords = [start];
+    } else if (key !== currentKey) {
+      currentCoords.push(start);
+      addRun(currentKey, currentCoords);
+      currentKey = key;
+      currentCoords = [start];
+    }
+    currentCoords.push(end);
+  }
+  addRun(currentKey, currentCoords);
+
+  if (polyline.length) {
+    layers.push(L.circleMarker(polyline[0], { radius: 6, color: "#10845f", fillColor: "#10845f", fillOpacity: 1, weight: 2 }).bindTooltip("Start"));
+    layers.push(L.circleMarker(polyline[polyline.length - 1], { radius: 6, color: "#b42318", fillColor: "#b42318", fillOpacity: 1, weight: 2 }).bindTooltip("Ziel"));
+  }
+
+  segmentLayer = L.layerGroup(layers).addTo(map);
+  if (polyline.length > 1) map.fitBounds(routeLayer.getBounds(), { padding: [28, 28] });
+  setTimeout(() => map.invalidateSize(), 0);
+}
+
+function appendCells(row, values) {
+  for (const value of values) {
+    const cell = document.createElement("td");
+    cell.textContent = value;
+    row.appendChild(cell);
+  }
+}
+
+function renderTrace(trace) {
+  if (!els.tracePanel || !els.traceTable) return;
+  els.tracePanel.classList.toggle("hidden", !trace.length);
+  els.traceTable.innerHTML = "";
+  for (const entry of trace) {
+    const tr = document.createElement("tr");
+    appendCells(tr, [
+      formatInterval(entry.interval_m),
+      Number(entry.segments || 0).toLocaleString("de-DE"),
+      entry.sun_side || "-",
+      entry.sun_pct == null ? "-" : `${Number(entry.sun_pct).toFixed(1)} %`,
+    ]);
+    els.traceTable.appendChild(tr);
+  }
 }
 
 function renderTable(segments) {
   const tbody = els.segTable;
   tbody.innerHTML = "";
-  for (const s of segments) {
+  for (const s of segments || []) {
     const tr = document.createElement("tr");
     const time = new Date(s.time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-    tr.innerHTML = `
-      <td>${time}</td>
-      <td>${s.bearing.toFixed(0)}</td>
-      <td>${s.sun_azimuth.toFixed(0)}</td>
-      <td>${s.sun_elevation.toFixed(0)}</td>
-      <td>${s.cloud_cover_pct == null ? "–" : Math.round(s.cloud_cover_pct)}</td>
-      <td>${s.sun_factor.toFixed(2)}</td>
-      <td>${s.sun_side}</td>
-    `;
+    appendCells(tr, [
+      time,
+      `${s.bearing.toFixed(0)}°`,
+      `${s.sun_azimuth.toFixed(0)}°`,
+      `${s.sun_elevation.toFixed(0)}°`,
+      s.intensity_factor == null ? "-" : Number(s.intensity_factor).toFixed(2),
+      s.cloud_cover_pct == null ? "-" : `${Math.round(s.cloud_cover_pct)} %`,
+      s.sun_factor == null ? "-" : Number(s.sun_factor).toFixed(2),
+      s.sun_side,
+      s.terrain_shaded ? "ja" : "",
+    ]);
     tbody.appendChild(tr);
   }
 }
 
 // ---- PWA install prompt ----
 let deferredPrompt = null;
+function hideInstallPrompt() {
+  deferredPrompt = null;
+  els.installBtn.classList.remove("show");
+}
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
+  if (isStandalonePwa()) return;
   deferredPrompt = e;
   els.installBtn.classList.add("show");
 });
@@ -945,13 +1182,80 @@ els.installBtn.addEventListener("click", async () => {
   deferredPrompt.prompt();
   deferredPrompt = null;
 });
+window.addEventListener("appinstalled", hideInstallPrompt);
+const standaloneModeQuery = window.matchMedia?.("(display-mode: standalone)");
+standaloneModeQuery?.addEventListener?.("change", () => {
+  if (isStandalonePwa()) hideInstallPrompt();
+});
+if (isStandalonePwa()) hideInstallPrompt();
 
-// ---- Service worker ----
+// ---- Service worker (with update flow) ----
+let updateRegistration = null;
+function showUpdateBanner(reg) {
+  updateRegistration = reg;
+  if (els.updateBanner) els.updateBanner.hidden = false;
+}
+function hideUpdateBanner() {
+  if (els.updateBanner) els.updateBanner.hidden = true;
+}
+els.updateBtn?.addEventListener("click", () => {
+  const waiting = updateRegistration?.waiting;
+  if (!waiting) { window.location.reload(); return; }
+  waiting.postMessage({ type: "SKIP_WAITING" });
+});
+els.updateDismiss?.addEventListener("click", hideUpdateBanner);
+
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((err) => console.warn("SW failed:", err));
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+
+      // If a worker is already waiting on first load, surface the prompt.
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg);
+
+      reg.addEventListener("updatefound", () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener("statechange", () => {
+          if (sw.state === "installed" && navigator.serviceWorker.controller) {
+            showUpdateBanner(reg);
+          }
+        });
+      });
+
+      // Periodic update check (hourly) for long-running PWA sessions.
+      setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+    } catch (err) {
+      console.warn("SW failed:", err);
+    }
+  });
+
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
   });
 }
+
+// ---- Online/Offline awareness ----
+function updateOnlineStatus() {
+  if (!els.offlinePill) return;
+  els.offlinePill.hidden = navigator.onLine;
+}
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+updateOnlineStatus();
+
+// ---- Deep-link / shortcut params ----
+try {
+  const params = new URLSearchParams(window.location.search);
+  const pref = params.get("pref");
+  if (pref === "Sonne" || pref === "Schatten") {
+    const radio = document.querySelector(`input[name="pref"][value="${pref}"]`);
+    if (radio) radio.checked = true;
+  }
+} catch {}
 
 // ---- Boot ----
 loadSunside().catch((err) => {

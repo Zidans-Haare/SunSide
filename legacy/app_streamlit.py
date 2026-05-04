@@ -14,7 +14,7 @@ from sunside.sun_analysis.analyzer import analyze
 from sunside.sun_analysis.sampler import auto_interval_m
 from sunside.weather import OpenMeteoWeatherProvider
 
-st.set_page_config(page_title="SunSide", page_icon="🌞")
+st.set_page_config(page_title="SunSide")
 
 
 @st.cache_data(ttl=3600)
@@ -110,7 +110,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("🌞 SunSide")
+st.title("SunSide")
 st.caption("Auf welcher Seite sitze ich im Schatten?")
 
 # --- Modus-Auswahl ---

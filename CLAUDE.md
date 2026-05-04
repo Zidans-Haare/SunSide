@@ -98,12 +98,10 @@ Siehe `sunside/models.py`:
 ```
 astral          — Sonnenstand (astronomische Berechnung, kein API)
 geopy           — Geocoding via Nominatim (kein API-Key nötig)
-streamlit       — UI
-folium          — Kartenvisualisierung
-streamlit-folium
+PWA/HTML/JS     — aktive UI
+Leaflet         — Kartenvisualisierung im Browser
 requests        — OSM Overpass API calls
 gpxpy           — GPX-Datei parsen
-pandas          — Tabellen im UI
 ```
 
 ---
@@ -113,7 +111,7 @@ pandas          — Tabellen im UI
 1. **OSM Overpass Provider** implementieren — echte Gleisgeometrie zwischen zwei Stationen
 2. **Rail-GTFS Feeds einbinden** — DB/Deutschland + OeBB/Railjet neben Flixbus importieren und in der UI bevorzugen
 3. **GPX Provider** fertig stellen — inkl. lokaler Routen-Datenbank
-4. **Streamlit App** ausbauen — Provider-Auswahl, Kartendarstellung, Segment-Coloring
+4. **PWA-UI** ausbauen — Provider-Auswahl, Kartendarstellung, Segment-Coloring
 5. **Realtest**: Flixbus Villach → irgendwo, Bahnfahrt zum Vergleich
 
 ---

@@ -125,7 +125,7 @@ Was macht das Skript?
 2. Validiert das Zip (Mindestgroesse + `unzip -t`).
 3. Importiert in eine **neue** Datei `${GTFS_NAME}.sqlite.tmp`.
 4. Tauscht atomar mit der bestehenden `${GTFS_NAME}.sqlite` (alt -> `.bak`).
-5. Streamlit-App nimmt die neue DB beim naechsten Cache-Refresh (TTL 1 h) auf.
+5. GTFS-API nimmt die neue DB nach Prozess-/Cache-Refresh auf.
 
 Variablen (im Cron-Eintrag setzbar):
 

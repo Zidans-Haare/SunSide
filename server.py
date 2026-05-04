@@ -2,8 +2,7 @@
 
 Small read-only FastAPI service that exposes the locally imported GTFS
 SQLite databases (Flixbus, DB, OeBB, ...) as JSON. The browser PWA fetches
-this for the "Fahrplan (GTFS)" mode; the Streamlit app uses GtfsDatabase
-directly and does NOT need this server.
+this for the "Fahrplan (GTFS)" mode.
 
 Run locally:
     uvicorn server:app --host 0.0.0.0 --port 8001

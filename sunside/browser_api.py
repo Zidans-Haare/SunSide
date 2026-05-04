@@ -9,6 +9,7 @@ This keeps the existing route_providers/ and weather.py modules untouched
 """
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from heapq import heappop, heappush
 from math import atan2, cos, degrees, inf, radians, sin
@@ -180,33 +181,61 @@ def make_rail_route_from_overpass(
     start_node = nearest((start_lat, start_lon))
     end_node = nearest((end_lat, end_lon))
 
-    queue: list[tuple[float, int]] = [(0.0, start_node)]
-    distances = {start_node: 0.0}
-    previous: dict[int, int] = {}
-    visited: set[int] = set()
-    while queue:
-        cd, cur = heappop(queue)
-        if cur in visited:
-            continue
-        visited.add(cur)
-        if cur == end_node:
-            break
-        for nb, ed in graph.get(cur, []):
-            cand = cd + ed
-            if cand < distances.get(nb, inf):
-                distances[nb] = cand
-                previous[nb] = cur
-                heappush(queue, (cand, nb))
+    def dijkstra(source: int) -> tuple[dict[int, float], dict[int, int]]:
+        q: list[tuple[float, int]] = [(0.0, source)]
+        dist: dict[int, float] = {source: 0.0}
+        prev: dict[int, int] = {}
+        vis: set[int] = set()
+        while q:
+            cd, cur = heappop(q)
+            if cur in vis:
+                continue
+            vis.add(cur)
+            for nb, ed in graph.get(cur, []):
+                cand = cd + ed
+                if cand < dist.get(nb, inf):
+                    dist[nb] = cand
+                    prev[nb] = cur
+                    heappush(q, (cand, nb))
+        return dist, prev
+
+    distances, previous = dijkstra(start_node)
 
     if end_node not in distances:
-        raise ValueError("Start und Ziel liegen in getrennten OSM-Gleisnetzen")
+        # Disconnected network: find end's connected component via BFS,
+        # enter it from the node closest to the physical start location,
+        # then run Dijkstra within that component.
+        end_comp: set[int] = {end_node}
+        bfs: deque[int] = deque([end_node])
+        while bfs:
+            n = bfs.popleft()
+            for nb, _ in graph.get(n, []):
+                if nb not in end_comp:
+                    end_comp.add(nb)
+                    bfs.append(nb)
 
-    path = [end_node]
-    while path[-1] != start_node:
-        path.append(previous[path[-1]])
-    path.reverse()
+        entry_node = min(end_comp, key=lambda nid: _edge_dist(nodes[nid], (start_lat, start_lon), departure))
+        dist2, prev2 = dijkstra(entry_node)
 
-    coords = [nodes[nid] for nid in path]
+        if end_node not in dist2:
+            raise ValueError(
+                "Start und Ziel liegen in getrennten OSM-Gleisnetzen — "
+                "bitte 'Flugzeug' oder 'Auto/Bus' als Modus waehlen."
+            )
+
+        rail_path = [end_node]
+        while rail_path[-1] != entry_node:
+            rail_path.append(prev2[rail_path[-1]])
+        rail_path.reverse()
+
+        # Straight-line approach from physical start to entry point, then rail geometry.
+        coords = [(start_lat, start_lon)] + [nodes[nid] for nid in rail_path]
+    else:
+        path = [end_node]
+        while path[-1] != start_node:
+            path.append(previous[path[-1]])
+        path.reverse()
+        coords = [nodes[nid] for nid in path]
     seg_lens = [_edge_dist(coords[i], coords[i + 1], departure) for i in range(len(coords) - 1)]
     total_m = sum(seg_lens)
     if total_m <= 0:

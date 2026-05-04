@@ -163,7 +163,12 @@ def import_feed(zip_path: Path, db_path: Path, *, feed_name: str = "flixbus") ->
     conn.executescript(SCHEMA)
 
     with zipfile.ZipFile(zip_path) as zf:
-        names = {n.lower(): n for n in zf.namelist()}
+        # Support ZIPs where all files are inside a single subdirectory
+        names = {}
+        for n in zf.namelist():
+            basename = n.split("/")[-1].lower()
+            if basename:
+                names[basename] = n
 
         # feed_info (optional)
         if "feed_info.txt" in names:

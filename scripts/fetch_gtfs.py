@@ -28,6 +28,7 @@ from scripts.gtfs_import import import_feed  # noqa: E402
 PRESETS = {
     "flixbus": "https://gtfs.gis.flix.tech/gtfs_generic_eu.zip",
     "db": "https://download.gtfs.de/germany/free/latest.zip",
+    "oebb": "https://static.web.oebb.at/open-data/soll-fahrplan-gtfs/GTFS_Fahrplan_2026.zip",
 }
 
 

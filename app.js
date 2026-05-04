@@ -145,7 +145,7 @@ function updateProviderUI() {
   els.gpxField.classList.toggle("hidden", v !== "gpx");
   if (els.gtfsField) els.gtfsField.classList.toggle("hidden", v !== "gtfs");
   els.od.classList.toggle("hidden", v === "gpx" || v === "gtfs");
-  els.durationField.classList.toggle("hidden", v === "gpx" || v === "gtfs");
+  els.durationField.classList.toggle("hidden", v !== "straight");
   els.previewMap.classList.toggle("hidden", v === "gpx" || v === "gtfs");
   if (v === "gtfs") ensureGtfsFeeds();
 
@@ -507,7 +507,7 @@ async function legacyGeocode(query) {
 
 // ---- GTFS API client (PWA-only) ----
 function gtfsApiBase() {
-  // Order: ?gtfs_api=... in URL > localStorage > window.SUNSIDE_GTFS_API > /api
+  // Order: ?gtfs_api=... in URL > localStorage > window.SUNSIDE_GTFS_API > auto-detect > /api
   const url = new URL(window.location.href);
   const fromQuery = url.searchParams.get("gtfs_api");
   if (fromQuery) {
@@ -517,6 +517,8 @@ function gtfsApiBase() {
   const stored = localStorage.getItem("sunside_gtfs_api");
   if (stored) return stored.replace(/\/$/, "");
   if (window.SUNSIDE_GTFS_API) return String(window.SUNSIDE_GTFS_API).replace(/\/$/, "");
+  // Local dev: frontend on :8000, API on :8001
+  if (window.location.port === "8000") return "http://localhost:8001/api";
   return "/api";
 }
 
@@ -524,27 +526,31 @@ let _gtfsFeedsLoaded = false;
 async function ensureGtfsFeeds() {
   if (_gtfsFeedsLoaded) return;
   const base = gtfsApiBase();
-  els.gtfsHint.textContent = `Verbinde zu ${base}...`;
+  els.gtfsHint.className = "status info";
+  els.gtfsHint.textContent = `Verbinde zu ${base} …`;
   try {
     const r = await fetch(`${base}/gtfs/feeds`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const body = await r.json();
     if (!body.feeds || !body.feeds.length) {
+      els.gtfsHint.className = "status warn";
       els.gtfsHint.textContent = "Keine GTFS-Feeds am Endpoint vorhanden.";
       return;
     }
-    els.gtfsFeed.innerHTML = "";
+    while (els.gtfsFeed.firstChild) els.gtfsFeed.removeChild(els.gtfsFeed.firstChild);
     for (const f of body.feeds) {
       const opt = document.createElement("option");
       opt.value = f.name;
-      opt.textContent = `${f.name} (${f.start_date || "?"} - ${f.end_date || "?"})`;
+      opt.textContent = `${f.name} (${f.start_date || "?"} – ${f.end_date || "?"})`;
       els.gtfsFeed.appendChild(opt);
     }
-    els.gtfsHint.textContent = `${body.feeds.length} Feed(s) verfuegbar via ${base}`;
+    els.gtfsHint.className = "status muted";
+    els.gtfsHint.textContent = `${body.feeds.length} Feed(s) via ${base}`;
     _gtfsFeedsLoaded = true;
     refreshGtfsTrips();
   } catch (err) {
-    els.gtfsHint.textContent = `Endpoint nicht erreichbar (${base}). Setze ?gtfs_api=https://dein-server in der URL.`;
+    els.gtfsHint.className = "status error";
+    els.gtfsHint.textContent = `Fehler: ${base}/gtfs/feeds — ${err.message}`;
   }
 }
 
@@ -736,13 +742,19 @@ function chunked(items, size) {
 
 async function fetchElevationSamples(coords) {
   const out = [];
-  for (const chunk of chunked(coords, 100)) {
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  for (const [i, chunk] of chunked(coords, 100).entries()) {
+    if (i > 0) await sleep(200);
     const url = new URL("https://api.open-meteo.com/v1/elevation");
     url.search = new URLSearchParams({
       latitude: chunk.map((c) => c.lat).join(","),
       longitude: chunk.map((c) => c.lon).join(","),
     }).toString();
-    const r = await fetch(url);
+    let r = await fetch(url);
+    if (r.status === 429) {
+      await sleep(3000);
+      r = await fetch(url);
+    }
     if (!r.ok) throw new Error(`Hoehendaten HTTP ${r.status}`);
     const data = await r.json();
     const elevations = data?.elevation || [];
@@ -880,12 +892,11 @@ points
         pyodide.globals.set("__sl", start[0]); pyodide.globals.set("__so", start[1]);
         pyodide.globals.set("__el", end[0]);   pyodide.globals.set("__eo", end[1]);
         pyodide.globals.set("__departure", departureIso);
-        pyodide.globals.set("__th", travelHours);
         setStatus("Baue Bahn-Route (Dijkstra)…", "info");
         pyPoints = await pyodide.runPythonAsync(`
 points = browser_api.make_rail_route_from_overpass(
     __overpass.to_py(), __sl, __so, __el, __eo,
-    __departure, travel_hours=__th,
+    __departure,
 )
 points
         `);

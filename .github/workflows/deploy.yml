@@ -10,49 +10,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Tests müssen grün sein bevor deployed wird
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
       - run: pip install -r requirements-dev.txt
       - run: pytest tests/ -v --tb=short
 
-  # GitHub Pages — kostenlos, kein Server nötig
-  pages:
+  deploy:
     needs: test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
     environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      name: production
+      url: https://sun.olomek.com
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v4
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-      - id: deploy
-        uses: actions/deploy-pages@v4
-
-  # Hetzner via rsync — aktivieren wenn SSH_PRIVATE_KEY + SSH_TARGET als Secrets gesetzt sind
-  # hetzner:
-  #   needs: test
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Deploy via rsync
-  #       env:
-  #         SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-  #         SSH_TARGET: ${{ secrets.SSH_TARGET }}
-  #       run: |
-  #         echo "$SSH_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
-  #         GIT_SSH_COMMAND="ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no" \
-  #           SSH_TARGET="$SSH_TARGET" ./deploy/deploy.sh
+      - name: Deploy to sun.olomek.com
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          echo "$SSH_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          ssh -i /tmp/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o BatchMode=yes \
+              htw@sun.olomek.com \
+              /opt/sunside/deploy/server-deploy.sh
+          rm -f /tmp/deploy_key

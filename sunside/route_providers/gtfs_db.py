@@ -136,6 +136,17 @@ class GtfsDatabase:
         board_stop = self.get_stop(board_stop_id)
         if board_stop is None:
             return []
+        alight_stop = self.get_stop(alight_stop_id)
+        if alight_stop is None:
+            return []
+
+        # Expand to all platform stops sharing the same name (e.g. Wien Hauptbahnhof has 11 platforms).
+        board_ids = [r[0] for r in self._conn.execute(
+            "SELECT stop_id FROM stops WHERE name = ?", (board_stop.name,)
+        ).fetchall()] or [board_stop_id]
+        alight_ids = [r[0] for r in self._conn.execute(
+            "SELECT stop_id FROM stops WHERE name = ?", (alight_stop.name,)
+        ).fetchall()] or [alight_stop_id]
 
         # Cover service days [date-1 .. date+1] to catch overnight overflows in either direction.
         candidates: list[GtfsTripCandidate] = []
@@ -145,11 +156,15 @@ class GtfsDatabase:
             if not active_services:
                 continue
 
-            placeholders = ",".join("?" for _ in active_services)
+            svc_ph = ",".join("?" for _ in active_services)
+            board_ph = ",".join("?" for _ in board_ids)
+            alight_ph = ",".join("?" for _ in alight_ids)
             sql = f"""
             SELECT
                 t.trip_id, t.route_id, t.headsign,
                 r.short_name AS route_short_name, r.long_name AS route_long_name,
+                st1.stop_id AS board_stop_id,
+                st2.stop_id AS alight_stop_id,
                 st1.departure_time AS board_dep,
                 st2.arrival_time   AS alight_arr,
                 sb.name AS board_name, sa.name AS alight_name,
@@ -157,19 +172,20 @@ class GtfsDatabase:
             FROM trips t
             JOIN routes r       ON r.route_id = t.route_id
             JOIN agency a       ON a.agency_id = r.agency_id
-            JOIN stop_times st1 ON st1.trip_id = t.trip_id AND st1.stop_id = ?
-            JOIN stop_times st2 ON st2.trip_id = t.trip_id AND st2.stop_id = ?
+            JOIN stop_times st1 ON st1.trip_id = t.trip_id AND st1.stop_id IN ({board_ph})
+            JOIN stop_times st2 ON st2.trip_id = t.trip_id AND st2.stop_id IN ({alight_ph})
             JOIN stops sb       ON sb.stop_id = st1.stop_id
             JOIN stops sa       ON sa.stop_id = st2.stop_id
-            WHERE t.service_id IN ({placeholders})
+            WHERE t.service_id IN ({svc_ph})
               AND st2.stop_sequence > st1.stop_sequence
             """
-            params: list = [board_stop_id, alight_stop_id, *active_services]
+            params: list = [*board_ids, *alight_ids, *active_services]
             rows = self._conn.execute(sql, params).fetchall()
 
             for row in rows:
                 agency_timezone = row["agency_tz"] or "UTC"
-                board_timezone = board_stop.timezone or agency_timezone
+                actual_board_stop = self.get_stop(row["board_stop_id"]) or board_stop
+                board_timezone = actual_board_stop.timezone or agency_timezone
                 board_tz = pytz.timezone(board_timezone)
                 board_dt = self._gtfs_time_to_datetime(row["board_dep"], service_date, agency_timezone)
                 alight_dt = self._gtfs_time_to_datetime(row["alight_arr"], service_date, agency_timezone)
@@ -190,9 +206,9 @@ class GtfsDatabase:
                     route_short_name=row["route_short_name"],
                     route_long_name=row["route_long_name"],
                     headsign=row["headsign"],
-                    board_stop_id=board_stop_id,
+                    board_stop_id=row["board_stop_id"],
                     board_stop_name=row["board_name"],
-                    alight_stop_id=alight_stop_id,
+                    alight_stop_id=row["alight_stop_id"],
                     alight_stop_name=row["alight_name"],
                     board_departure=board_dt,
                     alight_arrival=alight_dt,

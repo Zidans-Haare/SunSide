@@ -363,10 +363,16 @@ function renderSuggestionList(side, items, { visible = true } = {}) {
       event.preventDefault();
       chooseSuggestion(side, item);
     });
-    button.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse") return;
-      event.preventDefault();
-      chooseSuggestion(side, item);
+    // Touch: use touchend so the list can scroll freely; only select on tap (< 10 px movement)
+    let touchStartY = 0;
+    button.addEventListener("touchstart", (event) => {
+      touchStartY = event.touches[0].clientY;
+    }, { passive: true });
+    button.addEventListener("touchend", (event) => {
+      if (Math.abs(event.changedTouches[0].clientY - touchStartY) < 10) {
+        event.preventDefault();
+        chooseSuggestion(side, item);
+      }
     });
     target.appendChild(button);
   }

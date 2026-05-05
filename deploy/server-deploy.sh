@@ -30,7 +30,7 @@ rsync -a --delete \
   --exclude '.gitignore' \
   "$REPO/" "$WEBROOT/"
 
-echo "[deploy] restart API"
+echo "[deploy] reload API"
 sudo systemctl restart sunside-api
 
 echo "[deploy] done — $(date -u +%Y-%m-%dT%H:%M:%SZ)"

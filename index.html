@@ -381,7 +381,7 @@
     .swatch.night { color: var(--slate); }
     .swatch.terrain { color: var(--green); }
     .swatch.tunnel { color: #1f2937; }
-    #map { height: 560px; height: min(58vh, 560px); min-height: 420px; }
+    #map { height: min(68vh, 720px); min-height: 480px; }
 
     .details-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 14px; align-items: start; }
     details.panel { padding: 0; overflow: hidden; }
@@ -464,6 +464,32 @@
     .leaflet-container { font: inherit; }
     .leaflet-control-zoom a { width: 34px; height: 34px; line-height: 34px; }
 
+    @media (min-width: 1181px) {
+      .workspace {
+        grid-template-columns: minmax(400px, 460px) minmax(0, 1fr);
+        align-items: start;
+      }
+      .control-panel {
+        max-height: calc(100dvh - 36px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-gutter: stable;
+      }
+      #result {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 14px;
+      }
+      #result > #recommendation { grid-column: 1 / 2; align-self: stretch; }
+      #result > .insight-grid {
+        grid-column: 2 / 3;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        align-content: start;
+      }
+      #result > .map-panel   { grid-column: 1 / -1; }
+      #result > .details-grid { grid-column: 1 / -1; }
+    }
     @media (max-width: 1180px) {
       .workspace { grid-template-columns: 1fr; }
       .control-panel { position: static; }

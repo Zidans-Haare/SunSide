@@ -866,18 +866,54 @@ points
         gtfsState.trip.alight_stop_id,
         gtfsState.trip.service_date,
       );
-      // Convert ISO timestamps to seconds since departure for make_polyline_route
-      const coords = apiPoints.map(p => [p.lat, p.lon]);
-      const t0 = new Date(apiPoints[0].timestamp).getTime();
-      const tN = new Date(apiPoints[apiPoints.length - 1].timestamp).getTime();
-      const durationSeconds = Math.max(60, (tN - t0) / 1000);
-      pyodide.globals.set("__coords", coords);
-      pyodide.globals.set("__departure", apiPoints[0].timestamp);
-      pyodide.globals.set("__duration_seconds", durationSeconds);
-      pyPoints = await pyodide.runPythonAsync(`
+
+      if (apiPoints.length < 20) {
+        // No shape data (e.g. DB) — try OSM Overpass for real rail geometry
+        const start = [apiPoints[0].lat, apiPoints[0].lon];
+        const end = [apiPoints[apiPoints.length - 1].lat, apiPoints[apiPoints.length - 1].lon];
+        try {
+          setStatus("Kein Shape-Daten — lade OSM-Gleise...", "info");
+          const overpass = await fetchOverpassRail(start, end);
+          pyodide.globals.set("__overpass", overpass);
+          pyodide.globals.set("__sl", start[0]); pyodide.globals.set("__so", start[1]);
+          pyodide.globals.set("__el", end[0]);   pyodide.globals.set("__eo", end[1]);
+          pyodide.globals.set("__departure", apiPoints[0].timestamp);
+          setStatus("Baue Bahn-Route (Dijkstra)…", "info");
+          pyPoints = await pyodide.runPythonAsync(`
+points = browser_api.make_rail_route_from_overpass(
+    __overpass.to_py(), __sl, __so, __el, __eo,
+    __departure,
+)
+points
+          `);
+        } catch {
+          // Route too long for Overpass — fall back to stop waypoints
+          const coords = apiPoints.map(p => [p.lat, p.lon]);
+          const t0 = new Date(apiPoints[0].timestamp).getTime();
+          const tN = new Date(apiPoints[apiPoints.length - 1].timestamp).getTime();
+          const durationSeconds = Math.max(60, (tN - t0) / 1000);
+          pyodide.globals.set("__coords", coords);
+          pyodide.globals.set("__departure", apiPoints[0].timestamp);
+          pyodide.globals.set("__duration_seconds", durationSeconds);
+          pyPoints = await pyodide.runPythonAsync(`
 points = browser_api.make_polyline_route(__coords.to_py(), __departure, __duration_seconds)
 points
-      `);
+          `);
+        }
+      } else {
+        // Feed has shape data (OeBB, Flixbus) — use directly
+        const coords = apiPoints.map(p => [p.lat, p.lon]);
+        const t0 = new Date(apiPoints[0].timestamp).getTime();
+        const tN = new Date(apiPoints[apiPoints.length - 1].timestamp).getTime();
+        const durationSeconds = Math.max(60, (tN - t0) / 1000);
+        pyodide.globals.set("__coords", coords);
+        pyodide.globals.set("__departure", apiPoints[0].timestamp);
+        pyodide.globals.set("__duration_seconds", durationSeconds);
+        pyPoints = await pyodide.runPythonAsync(`
+points = browser_api.make_polyline_route(__coords.to_py(), __departure, __duration_seconds)
+points
+        `);
+      }
     } else {
       const origin = els.origin.value.trim();
       const destination = els.destination.value.trim();

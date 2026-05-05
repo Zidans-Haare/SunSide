@@ -31,11 +31,12 @@ jobs:
       - name: Deploy to sun.olomek.com
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
           echo "$SSH_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
           ssh -i /tmp/deploy_key \
               -o StrictHostKeyChecking=no \
               -o BatchMode=yes \
-              htw@sun.olomek.com \
+              htw@$SSH_HOST \
               /opt/sunside/deploy/server-deploy.sh
           rm -f /tmp/deploy_key

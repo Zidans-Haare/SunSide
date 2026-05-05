@@ -90,23 +90,25 @@ class GtfsDatabase:
 
     def search_stops(self, query: str, limit: int = 20) -> list[GtfsStop]:
         like = f"%{query.strip()}%"
+        # Step 1: LIKE scan to get candidate stops (~0.2s on large feeds)
         rows = self._conn.execute(
-            "WITH ranked AS ( "
-            "  SELECT s.stop_id, s.name, s.lat, s.lon, s.timezone, "
-            "         COALESCE(sc.c, 0) AS trip_count, "
-            "         ROW_NUMBER() OVER (PARTITION BY s.name ORDER BY COALESCE(sc.c, 0) DESC) AS rn "
-            "  FROM stops s "
-            "  LEFT JOIN (SELECT stop_id, COUNT(*) AS c FROM stop_times GROUP BY stop_id) sc "
-            "    ON sc.stop_id = s.stop_id "
-            "  WHERE s.name LIKE ? "
-            ") "
-            "SELECT stop_id, name, lat, lon, timezone FROM ranked "
-            "WHERE rn = 1 "
-            "ORDER BY trip_count DESC, name "
-            "LIMIT ?",
-            (like, limit),
+            "SELECT stop_id, name, lat, lon, timezone FROM stops WHERE name LIKE ?",
+            (like,),
         ).fetchall()
-        return [GtfsStop(**dict(r)) for r in rows]
+
+        # Step 2: count trips per stop via the index — fast (µs each, uses idx_stop_times_stop)
+        # Deduplicate by name, keeping the stop with the most trips.
+        best: dict[str, tuple] = {}  # name → (row, count)
+        for r in rows:
+            count = self._conn.execute(
+                "SELECT COUNT(*) FROM stop_times WHERE stop_id = ?", (r["stop_id"],)
+            ).fetchone()[0]
+            name = r["name"]
+            if name not in best or count > best[name][1]:
+                best[name] = (r, count)
+
+        result = sorted(best.values(), key=lambda x: (-x[1], x[0]["name"]))
+        return [GtfsStop(**dict(r)) for r, _ in result[:limit]]
 
     def get_stop(self, stop_id: str) -> GtfsStop | None:
         row = self._conn.execute(

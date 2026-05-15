@@ -26,8 +26,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Body, Depends, HTTPException, Header
 from pydantic import BaseModel, Field, model_validator
+from typing import Annotated
 
 from sunside.flight import make_great_circle_route
 from sunside.models import RoutePoint
@@ -202,75 +203,6 @@ class ResponseOptions(BaseModel):
 
 
 class RecommendRequest(BaseModel):
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "summary": "Rail — Wien → Salzburg (OSM geometry)",
-                    "value": {
-                        "mode": "rail",
-                        "origin": "Wien Hbf",
-                        "destination": "Salzburg Hbf",
-                        "departure": "2026-05-15T09:14:00+02:00",
-                        "analysis": {"mode": "auto"},
-                        "environment": {"weather": True, "terrain": True},
-                        "response": {"include_segments": False, "include_polyline": True, "language": "de"},
-                    },
-                },
-                {
-                    "summary": "Rail — GTFS trip (exact schedule)",
-                    "value": {
-                        "mode": "rail",
-                        "gtfs": {
-                            "feed": "oebb",
-                            "board_stop_id": "8100003",
-                            "alight_stop_id": "8100002",
-                            "service_date": "2026-05-15",
-                        },
-                        "departure": "2026-05-15T09:14:00+02:00",
-                        "analysis": {"mode": "converged"},
-                    },
-                },
-                {
-                    "summary": "Bus — Flixbus via GTFS",
-                    "value": {
-                        "mode": "bus",
-                        "gtfs": {
-                            "feed": "flixbus",
-                            "board_stop_id": "1",
-                            "alight_stop_id": "2",
-                        },
-                        "departure": "2026-05-15T08:00:00+02:00",
-                    },
-                },
-                {
-                    "summary": "Flight — Vienna → Hamburg (great-circle)",
-                    "value": {
-                        "mode": "flight",
-                        "origin": "Wien Flughafen",
-                        "destination": "Hamburg Flughafen",
-                        "departure": "2026-05-15T11:30:00+02:00",
-                        "travel_minutes": 130,
-                        "response": {"language": "en"},
-                    },
-                },
-                {
-                    "summary": "Custom polyline",
-                    "value": {
-                        "mode": "custom",
-                        "polyline": [
-                            [48.1951, 16.3766],
-                            [47.9500, 15.9800],
-                            [47.8126, 13.0451],
-                        ],
-                        "departure": "2026-05-15T09:14:00+02:00",
-                        "travel_minutes": 150,
-                    },
-                },
-            ]
-        }
-    }
-
     mode: TransportMode = Field(..., description="Transport mode")
 
     # Route input — exactly one strategy must be resolvable
@@ -938,18 +870,251 @@ def capabilities() -> dict:
     }
 
 
+_RECOMMEND_EXAMPLES = {
+    "rail_osm_auto": {
+        "summary": "Rail — OSM geometry, auto interval, weather + terrain",
+        "description": (
+            "Rail route Wien→Salzburg using real OSM track geometry. "
+            "Analysis interval auto-selected by bearing variance. "
+            "Cloud cover and terrain shading included. Route polyline returned."
+        ),
+        "value": {
+            "mode": "rail",
+            "origin": "Wien Hbf",
+            "destination": "Salzburg Hbf",
+            "departure": "2026-05-15T09:14:00+02:00",
+            "provider": "osm",
+            "analysis": {
+                "mode": "auto",
+                "use_intensity": True,
+            },
+            "environment": {
+                "weather": True,
+                "terrain": True,
+                "terrain_max_distance_m": 8000,
+                "terrain_sample_step_m": 500,
+            },
+            "response": {
+                "include_polyline": True,
+                "include_segments": False,
+                "language": "de",
+            },
+        },
+    },
+    "rail_gtfs_converged": {
+        "summary": "Rail — GTFS (stop IDs), converged mode + full trace",
+        "description": (
+            "ÖBB Railjet using GTFS feed — provide stop IDs and the API finds the "
+            "closest trip. Convergence mode iterates sampling intervals until the "
+            "result stabilises (most accurate for Alpine routes). "
+            "Full convergence trace and per-segment detail returned."
+        ),
+        "value": {
+            "mode": "rail",
+            "gtfs": {
+                "feed": "oebb",
+                "board_stop_id": "8100003",
+                "alight_stop_id": "8100002",
+                "service_date": "2026-05-15",
+            },
+            "departure": "2026-05-15T09:14:00+02:00",
+            "provider": "gtfs",
+            "analysis": {
+                "mode": "converged",
+                "converge_tolerance_pct": 0.5,
+                "use_intensity": True,
+            },
+            "environment": {
+                "weather": True,
+                "terrain": True,
+            },
+            "response": {
+                "include_segments": True,
+                "include_convergence_trace": True,
+                "language": "de",
+            },
+        },
+    },
+    "rail_gtfs_trip_id": {
+        "summary": "Rail — GTFS fully specified (trip_id + stop IDs)",
+        "description": (
+            "Most precise input: exact trip_id, board/alight stop IDs, and service date "
+            "as returned by GET /api/gtfs/{feed}/trips. Skips trip search entirely."
+        ),
+        "value": {
+            "mode": "rail",
+            "gtfs": {
+                "feed": "db",
+                "trip_id": "ICE_1234_20260515",
+                "board_stop_id": "8000105",
+                "alight_stop_id": "8000261",
+                "service_date": "2026-05-15",
+            },
+            "provider": "gtfs",
+            "analysis": {
+                "mode": "precise",
+            },
+            "response": {
+                "include_polyline": True,
+                "language": "de",
+            },
+        },
+    },
+    "rail_gtfs_names": {
+        "summary": "Rail — GTFS by place names (auto stop search)",
+        "description": (
+            "Simplest GTFS call: just origin/destination names and departure time. "
+            "The API searches for matching stops in the feed and picks the closest trip."
+        ),
+        "value": {
+            "mode": "rail",
+            "origin": "München Hbf",
+            "destination": "Berlin Hbf",
+            "departure": "2026-05-15T07:00:00+02:00",
+            "gtfs": {"feed": "db"},
+            "analysis": {"mode": "auto"},
+        },
+    },
+    "bus_gtfs_flixbus": {
+        "summary": "Bus — Flixbus GTFS by stop IDs",
+        "description": (
+            "Flixbus route using GTFS feed. Stop IDs from GET /api/gtfs/flixbus/stops. "
+            "Precise mode recommended for bus routes (road routing = more curves than rail)."
+        ),
+        "value": {
+            "mode": "bus",
+            "gtfs": {
+                "feed": "flixbus",
+                "board_stop_id": "40",
+                "alight_stop_id": "1",
+                "service_date": "2026-05-15",
+            },
+            "departure": "2026-05-15T08:00:00+02:00",
+            "provider": "gtfs",
+            "analysis": {"mode": "precise"},
+            "response": {"language": "de"},
+        },
+    },
+    "bus_osrm_coords": {
+        "summary": "Bus — OSRM road routing via coordinates",
+        "description": (
+            "Bus route without GTFS: exact coordinates as input, OSRM real road geometry. "
+            "Good for routes where no GTFS feed is available."
+        ),
+        "value": {
+            "mode": "bus",
+            "origin_coords": {"lat": 46.6228, "lon": 14.3052},
+            "destination_coords": {"lat": 45.4654, "lon": 9.1859},
+            "departure": "2026-05-15T06:30:00+02:00",
+            "travel_minutes": 240,
+            "provider": "osrm",
+            "analysis": {"mode": "precise"},
+        },
+    },
+    "flight_great_circle": {
+        "summary": "Flight — great-circle, intensity weighted",
+        "description": (
+            "Flight route using geodesic great-circle approximation. "
+            "use_intensity=true weights high-elevation (midday) sun more than "
+            "low-angle (morning/evening) sun — relevant for long east-west flights."
+        ),
+        "value": {
+            "mode": "flight",
+            "origin": "Wien Flughafen",
+            "destination": "New York JFK",
+            "departure": "2026-05-15T11:30:00+02:00",
+            "travel_minutes": 555,
+            "provider": "great_circle",
+            "analysis": {
+                "mode": "precise",
+                "use_intensity": True,
+            },
+            "response": {
+                "include_polyline": True,
+                "language": "en",
+            },
+        },
+    },
+    "car_osrm": {
+        "summary": "Car — OSRM road routing",
+        "description": "Car journey using real road geometry from OSRM.",
+        "value": {
+            "mode": "car",
+            "origin": "Innsbruck",
+            "destination": "Zürich",
+            "departure": "2026-05-15T08:00:00+02:00",
+            "provider": "osrm",
+            "analysis": {
+                "mode": "auto",
+                "use_intensity": False,
+            },
+            "environment": {"weather": True},
+        },
+    },
+    "custom_polyline": {
+        "summary": "Custom polyline (GPX-style input)",
+        "description": (
+            "Arbitrary route as [[lat, lon], ...] — use this for exotic routes, "
+            "historic railways, or any route not in GTFS/OSM."
+        ),
+        "value": {
+            "mode": "custom",
+            "polyline": [
+                [48.1951, 16.3766],
+                [47.9500, 15.9800],
+                [47.4968, 14.8553],
+                [47.2267, 14.1870],
+                [47.0408, 13.4870],
+                [47.8126, 13.0451],
+            ],
+            "departure": "2026-05-15T09:14:00+02:00",
+            "travel_minutes": 147,
+            "analysis": {
+                "mode": "converged",
+                "use_intensity": True,
+            },
+            "response": {
+                "include_polyline": True,
+                "include_convergence_trace": True,
+                "include_segments": True,
+            },
+        },
+    },
+    "rail_fast_minimal": {
+        "summary": "Rail — minimal request (fast mode, no extras)",
+        "description": (
+            "Simplest possible request: just mode, origin, destination, departure. "
+            "Fast 5 km sampling — good for straight routes (Hamburg–Berlin etc.)."
+        ),
+        "value": {
+            "mode": "rail",
+            "origin": "Hamburg Hbf",
+            "destination": "Berlin Hbf",
+            "departure": "2026-05-15T10:00:00+02:00",
+            "analysis": {"mode": "fast"},
+        },
+    },
+}
+
+
 @router.post(
     "/recommend",
     response_model=RecommendResponse,
     summary="Sun-side recommendation",
     description=(
         "Compute which side of the vehicle to sit on for maximum shade (or sun). "
-        "Supports all transport modes and multiple route providers. "
-        "Uses real OSM track geometry for rail and OSRM road routing for bus/car."
+        "Supports all transport modes and route providers. "
+        "**Provider auto-selection:** rail→OSM track geometry, bus/car→OSRM road routing, "
+        "flight→great-circle. Override with `provider` field or supply `gtfs` for "
+        "schedule-based routing.\n\n"
+        "**Analysis modes:** `auto` (adaptive interval), `fast` (5 km), "
+        "`precise` (200 m), `converged` (iterates until stable — best for Alpine routes).\n\n"
+        "Use `include_convergence_trace=true` with `mode=converged` to inspect "
+        "how the result stabilised across sampling intervals."
     ),
 )
 def recommend(
-    req: RecommendRequest,
+    req: Annotated[RecommendRequest, Body(openapi_examples=_RECOMMEND_EXAMPLES)],
     api_key: str = Depends(_auth_single),
 ) -> RecommendResponse:
     try:

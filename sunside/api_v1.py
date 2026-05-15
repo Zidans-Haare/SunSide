@@ -21,12 +21,13 @@ from __future__ import annotations
 import os
 import time
 from collections import defaultdict, deque
-from datetime import date, datetime, timedelta, timezone
+from datetime import date as date_cls
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Header
+from fastapi import APIRouter, Body, Depends, HTTPException, Header, Query
 from pydantic import BaseModel, Field, model_validator
 from typing import Annotated
 
@@ -151,7 +152,7 @@ class GtfsQuery(BaseModel):
     trip_id: str | None = Field(None, description="Exact GTFS trip_id — skip trip search if provided")
     board_stop_id: str | None = Field(None, description="Boarding stop_id from the feed")
     alight_stop_id: str | None = Field(None, description="Alighting stop_id from the feed")
-    service_date: date | None = Field(None, description="GTFS service-anchor date (YYYY-MM-DD)")
+    service_date: date_cls | None = Field(None, description="GTFS service-anchor date (YYYY-MM-DD)")
 
 
 class AnalysisOptions(BaseModel):
@@ -1125,6 +1126,154 @@ def recommend(
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(500, f"Unexpected error: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# GTFS discovery endpoints — Step 1 and 2 of the B2B workflow
+# ---------------------------------------------------------------------------
+
+class StopOut(BaseModel):
+    stop_id: str = Field(..., description="Use this as board_stop_id / alight_stop_id in /recommend")
+    name: str
+    lat: float
+    lon: float
+    timezone: str | None
+
+
+class TripOut(BaseModel):
+    trip_id: str = Field(..., description="Use in gtfs.trip_id for the most precise /recommend call")
+    route_short_name: str | None
+    route_long_name: str | None
+    headsign: str | None
+    board_stop_id: str
+    board_stop_name: str
+    board_departure: str = Field(..., description="ISO 8601 local departure time")
+    alight_stop_id: str
+    alight_stop_name: str
+    alight_arrival: str = Field(..., description="ISO 8601 local arrival time")
+    duration_minutes: int
+    service_date: str
+    label: str = Field(..., description="Human-readable summary for display")
+
+
+@router.get(
+    "/gtfs/feeds",
+    summary="List available GTFS feeds",
+    description=(
+        "Returns all loaded GTFS feeds (e.g. `oebb`, `db`, `flixbus`). "
+        "Use the feed name as the `{feed}` parameter in the other GTFS endpoints."
+    ),
+)
+def gtfs_feeds(api_key: str = Depends(_auth)) -> dict:
+    dbs = _open_gtfs_dbs()
+    feeds = []
+    for name, db in sorted(dbs.items()):
+        try:
+            info = db.feed_info()
+            feeds.append({
+                "feed": name,
+                "publisher": info.get("publisher_name"),
+                "valid_from": info.get("start_date"),
+                "valid_until": info.get("end_date"),
+            })
+        except Exception:
+            feeds.append({"feed": name})
+    return {"feeds": feeds}
+
+
+@router.get(
+    "/gtfs/{feed}/stops",
+    response_model=list[StopOut],
+    summary="Search stops by name",
+    description=(
+        "**Step 1 of the B2B workflow.** Search for stops by name within a GTFS feed.\n\n"
+        "Returns `stop_id` values you need for `board_stop_id` / `alight_stop_id` "
+        "in `/recommend` and in `/gtfs/{feed}/trips`.\n\n"
+        "Results are deduplicated by name and ranked by trip frequency — "
+        "the first result is almost always the right main station."
+    ),
+)
+def gtfs_stops(
+    feed: str,
+    q: str = Query(min_length=2, description="Station name fragment, e.g. 'Wien', 'München', 'Salzburg'"),
+    limit: int = Query(default=10, ge=1, le=50),
+    api_key: str = Depends(_auth),
+) -> list[StopOut]:
+    dbs = _open_gtfs_dbs()
+    if feed not in dbs:
+        raise HTTPException(404, f"Feed '{feed}' not found. Available: {sorted(dbs)}")
+    stops = dbs[feed].search_stops(q, limit=limit)
+    return [
+        StopOut(
+            stop_id=s.stop_id,
+            name=s.name,
+            lat=s.lat,
+            lon=s.lon,
+            timezone=s.timezone,
+        )
+        for s in stops
+    ]
+
+
+@router.get(
+    "/gtfs/{feed}/trips",
+    response_model=list[TripOut],
+    summary="Find trips between two stops",
+    description=(
+        "**Step 2 of the B2B workflow.** Find scheduled trips between two stops on a given date.\n\n"
+        "Use `stop_id` values from `/gtfs/{feed}/stops`. "
+        "Returns trips sorted by departure time. "
+        "Pick the trip matching your desired departure and use `trip_id` + `board_stop_id` + "
+        "`alight_stop_id` + `service_date` in the `gtfs` block of `/recommend` for the most "
+        "precise result — this skips all auto-search and uses the exact schedule.\n\n"
+        "**Typical workflow:**\n"
+        "```\n"
+        "GET /api/v1/gtfs/oebb/stops?q=Wien        → stop_id for Wien Hbf\n"
+        "GET /api/v1/gtfs/oebb/stops?q=Salzburg    → stop_id for Salzburg Hbf\n"
+        "GET /api/v1/gtfs/oebb/trips?board=<id>&alight=<id>&date=2026-05-15\n"
+        "POST /api/v1/recommend  { gtfs: { feed, trip_id, board_stop_id, alight_stop_id, service_date } }\n"
+        "```"
+    ),
+)
+def gtfs_trips(
+    feed: str,
+    board: str = Query(description="Boarding stop_id (from /gtfs/{feed}/stops)"),
+    alight: str = Query(description="Alighting stop_id (from /gtfs/{feed}/stops)"),
+    date: str = Query(description="Service date as YYYY-MM-DD"),
+    limit: int = Query(default=20, ge=1, le=100),
+    api_key: str = Depends(_auth),
+) -> list[TripOut]:
+    dbs = _open_gtfs_dbs()
+    if feed not in dbs:
+        raise HTTPException(404, f"Feed '{feed}' not found. Available: {sorted(dbs)}")
+    try:
+        service_date = date_cls.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    trips = dbs[feed].find_trips(
+        board_stop_id=board,
+        alight_stop_id=alight,
+        date_=service_date,
+        limit=limit,
+    )
+    return [
+        TripOut(
+            trip_id=t.trip_id,
+            route_short_name=t.route_short_name,
+            route_long_name=t.route_long_name,
+            headsign=t.headsign,
+            board_stop_id=t.board_stop_id,
+            board_stop_name=t.board_stop_name,
+            board_departure=t.board_departure.isoformat(),
+            alight_stop_id=t.alight_stop_id,
+            alight_stop_name=t.alight_stop_name,
+            alight_arrival=t.alight_arrival.isoformat(),
+            duration_minutes=t.duration_minutes,
+            service_date=t.service_date.isoformat(),
+            label=t.label,
+        )
+        for t in trips
+    ]
 
 
 @router.post(

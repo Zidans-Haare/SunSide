@@ -1,14 +1,22 @@
-"""SunSide GTFS API server.
+"""SunSide API server.
 
-Small read-only FastAPI service that exposes the locally imported GTFS
-SQLite databases (Flixbus, DB, OeBB, ...) as JSON. The browser PWA fetches
-this for the "Fahrplan (GTFS)" mode.
+Exposes two sets of endpoints:
+  /api/v1/recommend        — B2B recommendation API (all modes, providers, batch)
+  /api/v1/health           — Health + feed status
+  /api/v1/capabilities     — Supported modes, providers, options
+  /api/gtfs/...            — Raw GTFS data for the browser PWA
 
 Run locally:
     uvicorn server:app --host 0.0.0.0 --port 8001
 
 Deploy:
     See deploy/server-setup.md (Caddy reverse proxy + systemd unit).
+
+Environment variables:
+    SUNSIDE_API_KEYS          Comma-separated API keys (empty = auth disabled)
+    SUNSIDE_RATE_LIMIT        Requests/min per key for /recommend (default: 60)
+    SUNSIDE_BATCH_RATE_LIMIT  Requests/min per key for /recommend/batch (default: 10)
+    SUNSIDE_MAX_BATCH         Max items per batch request (default: 50)
 """
 from __future__ import annotations
 
@@ -18,11 +26,23 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from sunside.api_v1 import router as api_v1_router
 from sunside.route_providers.gtfs_db import GtfsDatabase
 
 GTFS_DIR = Path("data/gtfs")
 
-app = FastAPI(title="SunSide GTFS API", version="1.0")
+app = FastAPI(
+    title="SunSide API",
+    version="1.0",
+    description=(
+        "Which side of the train, bus, or plane should you sit on "
+        "to stay in the shade? SunSide computes it — using real track geometry, "
+        "GTFS schedules, and astronomical sun calculations."
+    ),
+    contact={"url": "https://sun.olomek.com"},
+)
+
+app.include_router(api_v1_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

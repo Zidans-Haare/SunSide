@@ -202,6 +202,75 @@ class ResponseOptions(BaseModel):
 
 
 class RecommendRequest(BaseModel):
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "summary": "Rail — Wien → Salzburg (OSM geometry)",
+                    "value": {
+                        "mode": "rail",
+                        "origin": "Wien Hbf",
+                        "destination": "Salzburg Hbf",
+                        "departure": "2026-05-15T09:14:00+02:00",
+                        "analysis": {"mode": "auto"},
+                        "environment": {"weather": True, "terrain": True},
+                        "response": {"include_segments": False, "include_polyline": True, "language": "de"},
+                    },
+                },
+                {
+                    "summary": "Rail — GTFS trip (exact schedule)",
+                    "value": {
+                        "mode": "rail",
+                        "gtfs": {
+                            "feed": "oebb",
+                            "board_stop_id": "8100003",
+                            "alight_stop_id": "8100002",
+                            "service_date": "2026-05-15",
+                        },
+                        "departure": "2026-05-15T09:14:00+02:00",
+                        "analysis": {"mode": "converged"},
+                    },
+                },
+                {
+                    "summary": "Bus — Flixbus via GTFS",
+                    "value": {
+                        "mode": "bus",
+                        "gtfs": {
+                            "feed": "flixbus",
+                            "board_stop_id": "1",
+                            "alight_stop_id": "2",
+                        },
+                        "departure": "2026-05-15T08:00:00+02:00",
+                    },
+                },
+                {
+                    "summary": "Flight — Vienna → Hamburg (great-circle)",
+                    "value": {
+                        "mode": "flight",
+                        "origin": "Wien Flughafen",
+                        "destination": "Hamburg Flughafen",
+                        "departure": "2026-05-15T11:30:00+02:00",
+                        "travel_minutes": 130,
+                        "response": {"language": "en"},
+                    },
+                },
+                {
+                    "summary": "Custom polyline",
+                    "value": {
+                        "mode": "custom",
+                        "polyline": [
+                            [48.1951, 16.3766],
+                            [47.9500, 15.9800],
+                            [47.8126, 13.0451],
+                        ],
+                        "departure": "2026-05-15T09:14:00+02:00",
+                        "travel_minutes": 150,
+                    },
+                },
+            ]
+        }
+    }
+
     mode: TransportMode = Field(..., description="Transport mode")
 
     # Route input — exactly one strategy must be resolvable

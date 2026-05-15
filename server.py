@@ -35,18 +35,35 @@ app = FastAPI(
     title="SunSide API",
     version="1.0",
     description=(
-        "Which side of the train, bus, or plane should you sit on "
-        "to stay in the shade? SunSide computes it — using real track geometry, "
-        "GTFS schedules, and astronomical sun calculations."
+        "## Which side of the train, bus, or plane should you sit on?\n\n"
+        "SunSide computes it — using **real OSM track geometry**, "
+        "**GTFS schedules** (DB, ÖBB, Flixbus), and astronomical sun calculations.\n\n"
+        "### Quick start\n"
+        "```\nPOST /api/v1/recommend\n"
+        '{"mode":"rail","origin":"Wien Hbf","destination":"Salzburg Hbf",'
+        '"departure":"2026-05-15T09:14:00+02:00"}\n```\n\n"'
+        "### Authentication\n"
+        "Pass your API key as `X-Api-Key` header. "
+        "Contact [sun.olomek.com](https://sun.olomek.com) for a key.\n\n"
+        "### Route providers (auto-selected by default)\n"
+        "| Mode | Default provider | Accuracy |\n"
+        "|---|---|---|\n"
+        "| `rail` | OSM Overpass real track geometry | High — curves included |\n"
+        "| `bus` / `car` | OSRM road routing | High |\n"
+        "| `flight` | Geodesic great-circle | Good |\n"
+        "| Any | GTFS feed (if specified) | Highest — real schedule |\n"
     ),
-    contact={"url": "https://sun.olomek.com"},
+    contact={"name": "SunSide", "url": "https://sun.olomek.com"},
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 app.include_router(api_v1_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 

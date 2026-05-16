@@ -1299,6 +1299,9 @@
   document.getElementById('result-back-btn').addEventListener('click', () => {
     document.getElementById('result').classList.add('hidden');
     document.getElementById('empty-state').classList.remove('hidden');
+    // Restore preview map if it was visible before
+    const preview = document.getElementById('preview-map');
+    if (preview && !preview.dataset.wasHidden) preview.classList.remove('hidden');
     moveMapBack();
   });
 
@@ -1332,6 +1335,12 @@
   window.addEventListener('sunside:result', () => {
     const p = document.getElementById('ss-map-placeholder');
     if (p) p.style.display = 'none';
+    // Hide preview map when result map is shown; remember its previous state
+    const preview = document.getElementById('preview-map');
+    if (preview) {
+      preview.dataset.wasHidden = preview.classList.contains('hidden') ? '1' : '';
+      preview.classList.add('hidden');
+    }
     moveMapIntoResult();
   });
 

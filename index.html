@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f5f0">
   <meta name="description" content="Sag mir, auf welcher Seite ich im Zug, Bus oder Flugzeug sitzen soll, damit ich im Schatten (oder in der Sonne) sitze. Offline-faehig, ohne Tracking.">
   <meta name="application-name" content="SunSide">
@@ -105,19 +105,20 @@
     }
 
     /* ── Reset & base ──────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; height: 100%; }
-    html { -webkit-text-size-adjust: 100%; }
+    *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: rgba(0,0,0,0); }
+    html, body { margin: 0; padding: 0; height: 100%; overflow-x: hidden; }
+    html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
     body {
       background: var(--paper);
       color: var(--ink);
       font-family: var(--f-sans);
       font-size: 15px;
       line-height: 1.45;
-      overscroll-behavior-y: none;
+      overscroll-behavior: none;
+      overflow-x: hidden;
     }
     button, input, select { font: inherit; color: inherit; }
-    button { cursor: pointer; background: transparent; border: 0; }
+    button { cursor: pointer; background: transparent; border: 0; touch-action: manipulation; }
     button:focus-visible, input:focus-visible, select:focus-visible {
       outline: 2px solid var(--sun-mid);
       outline-offset: 2px;
@@ -202,7 +203,7 @@
       background: var(--paper);
       border-radius: var(--r-lg);
       box-shadow: var(--shadow);
-      overflow: hidden;
+      position: relative;
     }
     .ss-card-div { height: 1px; background: var(--line); }
 
@@ -211,6 +212,8 @@
       display: grid; grid-template-columns: 1fr 1fr 1fr;
       gap: 5px; padding: 7px;
       background: var(--paper-2);
+      border-radius: var(--r-lg) var(--r-lg) 0 0;
+      overflow: hidden;
     }
     .ss-transport-seg button {
       height: 44px; border-radius: 10px;
@@ -285,7 +288,7 @@
     /* ── Autocomplete ──────────────────────────────────────────── */
     .autocomplete { position: relative; min-width: 0; }
     .suggestions {
-      position: absolute; z-index: 200;
+      position: absolute; z-index: 1000;
       top: calc(100% + 4px); left: -16px; right: -16px;
       max-height: 240px; overflow-y: auto;
       padding: 4px;
@@ -692,15 +695,40 @@
 
     /* ── Mobile ────────────────────────────────────────────────── */
     @media (max-width: 900px) {
-      .ss-workspace { flex-direction: column; height: auto; min-height: 100dvh; }
+      .ss-workspace { flex-direction: column; height: auto; min-height: 100dvh; overflow-x: hidden; }
       .ss-sidebar { flex: none; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--line); overflow: visible; }
       .ss-map-area { height: 55vmax; min-height: 300px; }
       #result-side { font-size: 72px; }
       .insight-grid { grid-template-columns: repeat(2, 1fr); }
+
+      /* Prevent iOS auto-zoom: all interactive inputs must be ≥ 16px */
+      input, select, textarea { font-size: 16px !important; }
+
+      /* Larger touch targets */
+      .ss-when-tab {
+        min-height: 44px;
+        display: inline-flex; align-items: center;
+        padding: 8px 14px;
+      }
+      .ss-mode-chip { height: 44px; }
+
+      /* Safe area at bottom of scrollable content */
+      .ss-form-wrap {
+        padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px));
+      }
+      #result {
+        padding-bottom: max(32px, calc(env(safe-area-inset-bottom) + 20px)) !important;
+      }
+
+      /* Momentum scrolling for suggestion chips */
+      .ss-chips { -webkit-overflow-scrolling: touch; }
     }
     @media (max-width: 480px) {
       .ss-form-wrap, .ss-hero-wrap, .ss-segbar-section, .insight-grid, .ss-details { padding-left: 12px; padding-right: 12px; }
       #empty-state { margin: 12px; }
+
+      /* Even tighter: prevent any horizontal overflow */
+      .ss-chips { padding-left: 12px; padding-right: 12px; }
     }
   </style>
 </head>
@@ -823,11 +851,11 @@
               <div style="display:grid;grid-template-columns:1fr 1fr">
                 <div style="padding:10px 12px; border-right:1px solid var(--line)">
                   <span class="ss-cap" style="margin-bottom:5px;display:block">Datum</span>
-                  <input id="dep-date" name="dep-date" type="date" required style="width:100%;border:0;background:transparent;color:var(--ink);font-size:15px;font-weight:600;outline:none;padding:0">
+                  <input id="dep-date" name="dep-date" type="date" required style="width:100%;border:0;background:transparent;color:var(--ink);font-size:16px;font-weight:600;outline:none;padding:0">
                 </div>
                 <div style="padding:10px 12px">
                   <span class="ss-cap" style="margin-bottom:5px;display:block">Uhrzeit</span>
-                  <input id="dep-time" name="dep-time" type="time" required style="width:100%;border:0;background:transparent;color:var(--ink);font-size:15px;font-weight:600;outline:none;padding:0">
+                  <input id="dep-time" name="dep-time" type="time" required style="width:100%;border:0;background:transparent;color:var(--ink);font-size:16px;font-weight:600;outline:none;padding:0">
                 </div>
               </div>
             </div>

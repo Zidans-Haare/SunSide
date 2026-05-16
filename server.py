@@ -20,16 +20,33 @@ Environment variables:
 """
 from __future__ import annotations
 
+import time
+from collections import defaultdict, deque
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from sunside.api_v1 import router as api_v1_router
 from sunside.route_providers.gtfs_db import GtfsDatabase
 
 GTFS_DIR = Path("data/gtfs")
+_GTFS_RATE = 60  # requests per minute per IP
+
+_gtfs_rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _gtfs_rate_limit(request: Request) -> None:
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    bucket = _gtfs_rate_buckets[ip]
+    cutoff = now - 60.0
+    while bucket and bucket[0] < cutoff:
+        bucket.popleft()
+    if len(bucket) >= _GTFS_RATE:
+        raise HTTPException(429, "Rate limit exceeded. Please slow down.")
+    bucket.append(now)
 
 app = FastAPI(
     title="SunSide API",
@@ -90,7 +107,8 @@ def health():
 
 
 @app.get("/api/gtfs/feeds")
-def feeds():
+def feeds(request: Request):
+    _gtfs_rate_limit(request)
     out = []
     for name in _list_feeds():
         info = _open(name).feed_info()
@@ -105,7 +123,8 @@ def feeds():
 
 
 @app.get("/api/gtfs/{feed}/stops")
-def stops(feed: str, q: str = Query(min_length=2), limit: int = 20):
+def stops(request: Request, feed: str, q: str = Query(min_length=2), limit: int = 20):
+    _gtfs_rate_limit(request)
     db = _open(feed)
     return {
         "stops": [
@@ -122,8 +141,9 @@ def stops(feed: str, q: str = Query(min_length=2), limit: int = 20):
 
 
 @app.get("/api/gtfs/{feed}/trips")
-def trips(feed: str, board: str, alight: str, date_: str = Query(alias="date"),
-          limit: int = 30):
+def trips(request: Request, feed: str, board: str, alight: str,
+          date_: str = Query(alias="date"), limit: int = 30):
+    _gtfs_rate_limit(request)
     db = _open(feed)
     try:
         target = date.fromisoformat(date_)
@@ -159,8 +179,9 @@ def trips(feed: str, board: str, alight: str, date_: str = Query(alias="date"),
 
 
 @app.get("/api/gtfs/{feed}/route")
-def route(feed: str, trip_id: str, board: str, alight: str,
+def route(request: Request, feed: str, trip_id: str, board: str, alight: str,
           service_date: str):
+    _gtfs_rate_limit(request)
     db = _open(feed)
     try:
         sd = date.fromisoformat(service_date)

@@ -1045,17 +1045,17 @@ function renderResult(result, pref) {
   const trace = result.convergence_trace || [];
 
   if (result.is_night) {
-    els.resultSide.textContent = "Nachtfahrt";
-    els.resultPct.textContent = "Keine Sonnenempfehlung noetig.";
+    els.resultSide.textContent = "Nacht";
+    els.resultPct.textContent = "—";
     els.recommendation.style.borderTopColor = "#475569";
   } else {
     els.recommendation.style.borderTopColor = "";
     if (pref === "Schatten") {
       els.resultSide.textContent = result.shade_side;
-      els.resultPct.textContent = `≈ ${result.shade_pct.toFixed(0)} % im Schatten`;
+      els.resultPct.textContent = `≈ ${result.shade_pct.toFixed(0)} %`;
     } else {
       els.resultSide.textContent = result.sun_side;
-      els.resultPct.textContent = `≈ ${result.sun_pct.toFixed(0)} % in der Sonne`;
+      els.resultPct.textContent = `≈ ${result.sun_pct.toFixed(0)} %`;
     }
   }
 
@@ -1081,7 +1081,43 @@ function renderResult(result, pref) {
   renderMap(result);
   renderTrace(trace);
   renderTable(result.segments);
+  renderSegmentBar(result.segments);
+
+  // Update segment bar total label
+  const segTotalEl = document.getElementById("seg-bar-total");
+  if (segTotalEl) segTotalEl.textContent = `${segmentCount.toLocaleString("de-DE")} PUNKTE`;
+
+  // Notify UI layer
+  window.dispatchEvent(new CustomEvent("sunside:result", { detail: { result, pref } }));
+
   els.result.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+}
+
+function renderSegmentBar(segments) {
+  const container = document.getElementById("seg-bar");
+  if (!container) return;
+  while (container.firstChild) container.removeChild(container.firstChild);
+  if (!segments?.length) return;
+
+  const maxCells = 80;
+  const step = Math.max(1, Math.floor(segments.length / maxCells));
+  const cells = [];
+  for (let i = 0; i < segments.length; i += step) cells.push(segments[i]);
+
+  for (const s of cells) {
+    const cell = document.createElement("div");
+    cell.style.flex = "1";
+    if (s.terrain_shaded) {
+      cell.style.background = "var(--green, #10845f)";
+    } else if (!s.sun_side || s.sun_side === "night") {
+      cell.style.background = "var(--shade-mid)";
+    } else if (s.sun_side === "rechts") {
+      cell.style.background = "var(--sun-mid)";
+    } else {
+      cell.style.background = "var(--shade)";
+    }
+    container.appendChild(cell);
+  }
 }
 
 function segmentKey(segment) {

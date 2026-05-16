@@ -3,9 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f6f8">
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0f17">
-  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f7f5f0">
   <meta name="description" content="Sag mir, auf welcher Seite ich im Zug, Bus oder Flugzeug sitzen soll, damit ich im Schatten (oder in der Sonne) sitze. Offline-faehig, ohne Tracking.">
   <meta name="application-name" content="SunSide">
   <meta name="mobile-web-app-capable" content="yes">
@@ -16,6 +14,9 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="dns-prefetch" href="https://nominatim.openstreetmap.org">
   <link rel="dns-prefetch" href="https://overpass-api.de">
   <link rel="dns-prefetch" href="https://api.open-meteo.com">
@@ -24,772 +25,1221 @@
   <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png">
   <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon-180.png">
-  <link rel="apple-touch-icon" href="assets/icon.svg">
 
-  <title>SunSide - Sitzseite fuer Sonne und Schatten</title>
+  <title>SunSide — Sitzseite für Sonne und Schatten</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+
   <style>
+    /* ── Design tokens ─────────────────────────────────────────── */
     :root {
-      color-scheme: light;
-      --bg: #f4f6f8;
-      --surface: #ffffff;
-      --surface-soft: #f8fafc;
-      --text: #151923;
-      --muted: #647081;
-      --border: #d7dee8;
-      --accent: #f2b705;
-      --accent-strong: #d89500;
-      --accent-text: #14120a;
-      --blue: #2563eb;
-      --orange: #e85d04;
-      --green: #10845f;
-      --slate: #475569;
-      --danger: #b42318;
-      --danger-bg: #fff0ed;
-      --info-bg: #eaf2ff;
-      --info-text: #184a90;
-      --warn-bg: #fff6d9;
-      --warn-text: #765100;
-      --shadow: 0 18px 45px rgba(31, 41, 55, 0.08);
-      --radius: 8px;
-      --control-h: 44px;
-      --safe-top: env(safe-area-inset-top, 0px);
-      --safe-right: env(safe-area-inset-right, 0px);
+      --paper:     oklch(0.97 0.013 80);
+      --paper-2:   oklch(0.94 0.018 80);
+      --ink:       oklch(0.18 0.02 60);
+      --ink-dim:   oklch(0.42 0.02 60);
+      --line:      oklch(0.88 0.015 75);
+      --line-2:    oklch(0.82 0.018 75);
+
+      --sun:       oklch(0.82 0.14 70);
+      --sun-mid:   oklch(0.74 0.17 60);
+      --sun-deep:  oklch(0.55 0.17 45);
+      --sun-tint:  oklch(0.94 0.05 80);
+
+      --shade:     oklch(0.22 0.03 250);
+      --shade-2:   oklch(0.16 0.03 250);
+      --shade-mid: oklch(0.42 0.04 245);
+      --shade-tint:oklch(0.94 0.018 240);
+
+      --f-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --f-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+
+      --r-sm: 8px;
+      --r-md: 14px;
+      --r-lg: 22px;
+      --r-xl: 32px;
+
+      /* legacy aliases used by app.js status / switch CSS */
+      --bg:          var(--paper);
+      --surface:     var(--paper);
+      --surface-soft:var(--paper-2);
+      --text:        var(--ink);
+      --muted:       var(--ink-dim);
+      --border:      var(--line);
+      --accent:      var(--sun);
+      --accent-strong: var(--sun-mid);
+      --accent-text: oklch(0.20 0.07 50);
+      --blue:        oklch(0.52 0.17 260);
+      --orange:      var(--sun-mid);
+      --green:       oklch(0.50 0.15 155);
+      --slate:       var(--shade-mid);
+      --danger:      oklch(0.50 0.20 25);
+      --danger-bg:   oklch(0.97 0.02 25);
+      --info-bg:     oklch(0.96 0.018 240);
+      --info-text:   oklch(0.35 0.08 250);
+      --warn-bg:     var(--sun-tint);
+      --warn-text:   var(--sun-deep);
+      --shadow:      0 1px 0 rgba(0,0,0,0.03), 0 12px 32px -16px rgba(20,15,5,0.18), 0 0 0 1px var(--line);
+      --radius:      var(--r-sm);
+      --control-h:   44px;
+      --safe-top:    env(safe-area-inset-top, 0px);
+      --safe-right:  env(safe-area-inset-right, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
-      --safe-left: env(safe-area-inset-left, 0px);
+      --safe-left:   env(safe-area-inset-left, 0px);
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        color-scheme: dark;
-        --bg: #0b0f17;
-        --surface: #131822;
-        --surface-soft: #1a212e;
-        --text: #e6e9f0;
-        --muted: #8a93a6;
-        --border: #262d3b;
-        --accent: #f2b705;
-        --accent-strong: #ffc83d;
-        --accent-text: #161204;
-        --blue: #7aa7ff;
-        --orange: #ff9b66;
-        --green: #4fc79d;
-        --slate: #8a93a6;
-        --danger: #ff9b8e;
-        --danger-bg: #2a1614;
-        --info-bg: #131e33;
-        --info-text: #b8cdf0;
-        --warn-bg: #2a220a;
-        --warn-text: #f2d27a;
-        --shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
+        --paper:     oklch(0.14 0.012 240);
+        --paper-2:   oklch(0.19 0.014 240);
+        --ink:       oklch(0.93 0.008 80);
+        --ink-dim:   oklch(0.60 0.015 240);
+        --line:      oklch(0.26 0.014 240);
+        --line-2:    oklch(0.32 0.014 240);
+        --sun-tint:  oklch(0.22 0.05 70);
+        --shade-tint:oklch(0.20 0.022 240);
+        --danger-bg: oklch(0.20 0.04 25);
+        --info-bg:   oklch(0.18 0.03 240);
+        --warn-bg:   oklch(0.20 0.05 70);
       }
     }
 
-    * { box-sizing: border-box; }
-    html, body { min-height: 100%; }
-    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    /* ── Reset & base ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      font-size: 16px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--f-sans);
+      font-size: 15px;
       line-height: 1.45;
-      letter-spacing: 0;
       overscroll-behavior-y: none;
     }
-
-    button, input, select { font: inherit; letter-spacing: 0; }
-    button, label, input, select, summary { -webkit-tap-highlight-color: transparent; }
-    button { color: inherit; }
-    main { width: 100%; }
-    .app-shell {
-      min-height: 100vh;
-      min-height: 100dvh;
-      padding: max(18px, var(--safe-top)) max(18px, var(--safe-right)) max(18px, var(--safe-bottom)) max(18px, var(--safe-left));
+    button, input, select { font: inherit; color: inherit; }
+    button { cursor: pointer; background: transparent; border: 0; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--sun-mid);
+      outline-offset: 2px;
     }
-    .workspace {
-      width: min(1440px, 100%);
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
-      gap: 18px;
-      align-items: start;
-    }
-
-    .control-panel { position: sticky; top: 18px; display: grid; gap: 14px; }
-    .brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 2px 2px 0; }
-    .brand-main { display: grid; gap: 3px; }
-    .brand h1 { margin: 0; font-size: 1.75rem; line-height: 1.05; font-weight: 780; }
-    .brand p { margin: 0; color: var(--muted); font-size: 0.95rem; }
-    .runtime-chip, .pill {
-      display: inline-flex;
-      align-items: center;
-      min-height: 28px;
-      padding: 3px 10px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: var(--surface);
-      color: var(--muted);
-      font-size: 0.8rem;
-      white-space: nowrap;
-    }
-
-    .input-stack { display: grid; gap: 10px; }
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 14px;
-    }
-    .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-    .panel-title h2, .panel-title h3 { margin: 0; font-size: 0.95rem; line-height: 1.2; font-weight: 720; }
-    .panel-title span { color: var(--muted); font-size: 0.82rem; }
-
-    .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-    .field { display: grid; gap: 6px; min-width: 0; margin-bottom: 10px; }
-    .field:last-child { margin-bottom: 0; }
-    label { display: block; color: var(--text); font-weight: 650; font-size: 0.88rem; }
-    input[type=text], input[type=date], input[type=time], input[type=file], select {
-      width: 100%;
-      min-height: var(--control-h);
-      padding: 9px 11px;
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      background: var(--surface-soft);
-      color: var(--text);
-      outline: none;
-      font-size: 1rem;
-    }
-    input[type=file] { padding: 8px; }
-    input[type=range] { width: 100%; accent-color: var(--accent-strong); }
-    input:focus, select:focus, button:focus-visible {
-      border-color: var(--blue);
-      outline: 3px solid color-mix(in srgb, var(--blue) 24%, transparent);
-      outline-offset: 1px;
-    }
-    select { cursor: pointer; }
-
-    .status {
-      width: 100%;
-      padding: 9px 11px;
-      border-radius: 7px;
-      border: 1px solid transparent;
-      font-size: 0.88rem;
-      color: var(--muted);
-      background: var(--surface-soft);
-    }
-    .status.info { background: var(--info-bg); color: var(--info-text); border-color: color-mix(in srgb, var(--info-text) 20%, transparent); }
-    .status.warn { background: var(--warn-bg); color: var(--warn-text); border-color: color-mix(in srgb, var(--warn-text) 22%, transparent); }
-    .status.error { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 24%, transparent); white-space: pre-wrap; }
-    .status.muted { background: var(--surface-soft); color: var(--muted); border-color: var(--border); }
-
-    .autocomplete { position: relative; min-width: 0; }
-    .suggestions {
-      position: absolute;
-      z-index: 1000;
-      top: calc(100% + 6px);
-      left: 0;
-      right: 0;
-      max-height: 290px;
-      overflow-y: auto;
-      padding: 5px;
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: 0 18px 46px rgba(15, 23, 42, 0.2);
-    }
-    .suggestion {
-      width: 100%;
-      display: block;
-      min-height: 44px;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: inherit;
-      text-align: left;
-      padding: 8px 9px;
-      cursor: pointer;
-    }
-    .suggestion:hover, .suggestion:focus, .suggestion.active { background: var(--surface-soft); outline: none; }
-    .suggestion-title { display: block; font-weight: 680; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .suggestion-meta { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .suggestion-empty { padding: 9px; color: var(--muted); font-size: 0.88rem; }
-
-    .segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .segmented label {
-      min-height: var(--control-h);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px 10px;
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      background: var(--surface-soft);
-      color: var(--muted);
-      text-align: center;
-      cursor: pointer;
-      user-select: none;
-    }
-    .segmented input { position: absolute; opacity: 0; pointer-events: none; }
-    .segmented label:has(input:checked) { background: var(--accent); color: var(--accent-text); border-color: var(--accent-strong); font-weight: 760; }
-
-    .switch-list { display: grid; gap: 8px; }
-    .switch {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 10px;
-      align-items: start;
-      padding: 10px 11px;
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      background: var(--surface-soft);
-      cursor: pointer;
-      transition: border-color 120ms ease, background 120ms ease;
-    }
-    .switch:hover { border-color: color-mix(in srgb, var(--accent-strong) 50%, var(--border)); }
-    .switch:has(input:checked) {
-      border-color: var(--accent-strong);
-      background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-    }
-    .switch input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent-strong); }
-    .switch > span { display: grid; gap: 2px; min-height: 22px; color: var(--text); }
-    .switch strong { display: block; font-size: 0.9rem; line-height: 1.25; }
-    .switch small { display: block; color: var(--muted); font-size: 0.78rem; line-height: 1.3; }
-
-    .map-preview {
-      height: 210px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      background: var(--surface);
-      box-shadow: var(--shadow);
-    }
-    .primary {
-      width: 100%;
-      min-height: 52px;
-      border: 1px solid var(--accent-strong);
-      border-radius: var(--radius);
-      background: var(--accent);
-      color: var(--accent-text);
-      cursor: pointer;
-      font-weight: 780;
-      box-shadow: 0 10px 24px rgba(216, 149, 0, 0.24);
-    }
-    .primary:hover:not(:disabled) { background: #ffc627; }
-    .primary:disabled { opacity: 0.56; cursor: not-allowed; box-shadow: none; }
-
-    .result-workbench { display: grid; gap: 14px; min-width: 0; }
-    .empty-state {
-      min-height: calc(100vh - 36px);
-      display: grid;
-      place-items: center;
-      border: 1px dashed var(--border);
-      border-radius: var(--radius);
-      background: color-mix(in srgb, var(--surface) 74%, transparent);
-      padding: 28px;
-      text-align: left;
-      color: var(--muted);
-    }
-    .empty-state-inner { display: grid; gap: 18px; max-width: 460px; }
-    .empty-state h2 { margin: 0; color: var(--text); font-size: 1.4rem; line-height: 1.2; text-align: center; }
-    .empty-state .lede { margin: 0; text-align: center; font-size: 0.95rem; }
-    .empty-state ol {
-      list-style: none;
-      counter-reset: step;
-      margin: 0;
-      padding: 0;
-      display: grid;
-      gap: 12px;
-    }
-    .empty-state li {
-      counter-increment: step;
-      display: grid;
-      grid-template-columns: 32px minmax(0, 1fr);
-      gap: 12px;
-      align-items: start;
-      padding: 12px 14px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--surface);
-      color: var(--text);
-    }
-    .empty-state li::before {
-      content: counter(step);
-      width: 32px; height: 32px;
-      display: grid; place-items: center;
-      border-radius: 999px;
-      background: var(--accent);
-      color: var(--accent-text);
-      font-weight: 800;
-      font-size: 0.95rem;
-    }
-    .empty-state li strong { display: block; font-size: 0.95rem; font-weight: 720; }
-    .empty-state li span { display: block; color: var(--muted); font-size: 0.84rem; margin-top: 2px; }
-
-    #result { display: grid; gap: 14px; animation: fade-in 220ms ease both; }
-    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-    .recommendation {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: end;
-      gap: 18px;
-      min-height: 166px;
-      padding: 22px;
-      border-radius: var(--radius);
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow);
-      border-top: 6px solid var(--accent);
-    }
-    .recommendation-label { margin: 0 0 8px; color: var(--muted); font-size: 0.82rem; font-weight: 720; text-transform: uppercase; }
-    .recommendation .side { margin: 0; font-size: 3rem; line-height: 0.95; font-weight: 830; text-transform: uppercase; }
-    .recommendation .pct { margin: 10px 0 0; font-size: 1.2rem; font-weight: 680; }
-    .recommendation .meta { margin: 0; max-width: 360px; color: var(--muted); font-size: 0.9rem; text-align: right; }
-
-    .insight-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-    .metric {
-      min-height: 84px;
-      display: grid;
-      align-content: center;
-      gap: 5px;
-      padding: 12px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--surface);
-      box-shadow: var(--shadow);
-      cursor: help;
-      transition: border-color 120ms ease, transform 120ms ease;
-    }
-    .metric:hover { border-color: color-mix(in srgb, var(--accent-strong) 40%, var(--border)); transform: translateY(-1px); }
-    .metric span { color: var(--muted); font-size: 0.78rem; font-weight: 690; text-transform: uppercase; letter-spacing: 0.02em; }
-    .metric strong { font-size: 1.05rem; line-height: 1.1; }
-
-    .map-panel { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
-    .section-head { min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
-    .section-head h2 { margin: 0; font-size: 0.95rem; }
-    .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 12px; color: var(--muted); font-size: 0.78rem; }
-    .legend span { display: inline-flex; align-items: center; gap: 5px; }
-    .swatch { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
-    .swatch.left { color: var(--blue); }
-    .swatch.right { color: var(--orange); }
-    .swatch.night { color: var(--slate); }
-    .swatch.terrain { color: var(--green); }
-    .swatch.tunnel { color: #1f2937; }
-    #map { height: min(68vh, 720px); min-height: 480px; }
-
-    .details-grid { display: grid; grid-template-columns: 0.9fr 1.4fr; gap: 14px; align-items: start; }
-    details.panel { padding: 0; overflow: hidden; }
-    summary { min-height: 50px; display: flex; align-items: center; padding: 12px 14px; cursor: pointer; font-weight: 720; border-bottom: 1px solid var(--border); }
-    details:not([open]) summary { border-bottom: 0; }
-    .table-wrap { overflow: auto; max-height: 360px; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
-    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    th { position: sticky; top: 0; z-index: 1; background: var(--surface); color: var(--muted); font-size: 0.76rem; font-weight: 760; }
-    tbody tr:hover { background: var(--surface-soft); }
-
-    .install-banner {
-      display: none;
-      position: fixed;
-      right: 18px;
-      bottom: max(18px, var(--safe-bottom));
-      z-index: 100;
-      min-height: 42px;
-      padding: 9px 14px;
-      border: 1px solid var(--text);
-      border-radius: 999px;
-      background: var(--text);
-      color: var(--bg);
-      cursor: pointer;
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-      font-weight: 680;
-    }
-    .install-banner.show { display: inline-flex; align-items: center; }
     .hidden { display: none !important; }
 
-    .update-banner {
-      position: fixed;
-      left: 50%;
-      bottom: max(18px, var(--safe-bottom));
-      transform: translateX(-50%);
-      z-index: 110;
-      display: inline-flex;
+    /* ── Layout ────────────────────────────────────────────────── */
+    .ss-workspace {
+      display: flex;
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    .ss-sidebar {
+      flex: 0 0 460px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      border-right: 1px solid var(--line);
+      background: var(--paper);
+      scrollbar-width: thin;
+      scrollbar-gutter: stable;
+    }
+
+    .ss-map-area {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--paper-2);
+    }
+
+    /* ── Brand header ──────────────────────────────────────────── */
+    .ss-brand {
+      flex-shrink: 0;
+      padding: 18px 22px 14px;
+      display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 10px 12px 10px 16px;
-      border-radius: 999px;
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--border);
-      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
-      font-size: 0.9rem;
-      max-width: calc(100vw - 32px);
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+    }
+    .ss-brand-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .ss-brand-mark {
+      width: 30px; height: 30px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--sun) 0%, var(--sun-deep) 100%);
+      position: relative; overflow: hidden; flex-shrink: 0;
+    }
+    .ss-brand-mark::after {
+      content: '';
+      position: absolute; right: -5px; bottom: -5px;
+      width: 24px; height: 24px; border-radius: 50%;
+      background: var(--shade);
+    }
+    .ss-brand-name {
+      font-weight: 800; font-size: 18px; letter-spacing: -0.025em;
+    }
+    .ss-brand-right {
+      display: flex; align-items: center; gap: 8px;
+      color: var(--ink-dim); font-size: 11.5px; font-weight: 600;
+    }
+    .ss-brand-sep {
+      width: 1px; height: 10px; background: var(--line-2);
+    }
+
+    /* ── Form wrap ─────────────────────────────────────────────── */
+    .ss-form-wrap {
+      padding: 16px 16px 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ── Card ──────────────────────────────────────────────────── */
+    .ss-card {
+      background: var(--paper);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .ss-card-div { height: 1px; background: var(--line); }
+
+    /* ── Transport seg ─────────────────────────────────────────── */
+    .ss-transport-seg {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 5px; padding: 7px;
+      background: var(--paper-2);
+    }
+    .ss-transport-seg button {
+      height: 44px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      font: 600 13px/1 var(--f-sans); color: var(--ink-dim);
+    }
+    .ss-transport-seg button.active {
+      background: var(--paper); color: var(--ink);
+      box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.07);
+    }
+
+    /* ── Input rows ────────────────────────────────────────────── */
+    .ss-input-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; position: relative;
+    }
+    .ss-input-row + .ss-input-row { border-top: 1px dashed var(--line-2); }
+
+    .ss-row-dot {
+      width: 22px; height: 22px; border-radius: 11px;
+      border: 2px solid var(--ink);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .ss-row-dot-inner {
+      width: 6px; height: 6px; border-radius: 3px;
+      background: var(--ink);
+    }
+    .ss-row-icon {
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink); flex-shrink: 0;
+    }
+    .ss-row-body { flex: 1; min-width: 0; }
+
+    .ss-cap {
+      text-transform: uppercase; letter-spacing: 0.14em;
+      font-size: 10px; font-weight: 600; color: var(--ink-dim);
+      display: block;
+    }
+    .ss-row-input {
+      width: 100%; border: 0; background: transparent; outline: none;
+      font-size: 16px; font-weight: 600; letter-spacing: -0.015em;
+      color: var(--ink); padding: 3px 0 0;
+    }
+    .ss-row-input::placeholder { color: var(--ink-dim); font-weight: 500; }
+
+    .ss-swap-btn {
+      width: 34px; height: 34px; border-radius: 17px;
+      background: var(--paper-2); color: var(--ink);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* ── Autocomplete ──────────────────────────────────────────── */
+    .autocomplete { position: relative; min-width: 0; }
+    .suggestions {
+      position: absolute; z-index: 200;
+      top: calc(100% + 4px); left: -16px; right: -16px;
+      max-height: 240px; overflow-y: auto;
+      padding: 4px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      box-shadow: 0 12px 32px rgba(20,15,5,0.15);
+    }
+    .suggestions.hidden { display: none; }
+    .suggestion {
+      width: 100%; display: block; min-height: 40px;
+      border: 0; border-radius: var(--r-sm);
+      background: transparent; color: inherit;
+      text-align: left; padding: 7px 9px; cursor: pointer;
+    }
+    .suggestion:hover, .suggestion.active { background: var(--paper-2); outline: none; }
+    .suggestion-title { display: block; font-weight: 600; font-size: 13px; }
+    .suggestion-meta  { display: block; margin-top: 1px; color: var(--ink-dim); font-size: 11px; }
+    .suggestion-empty { padding: 8px 9px; color: var(--ink-dim); font-size: 12px; }
+
+    /* ── Time section ──────────────────────────────────────────── */
+    .ss-time-section {
+      padding: 12px 16px 16px;
+    }
+    .ss-when-row {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 12px;
+    }
+    .ss-when-tab {
+      padding: 6px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; letter-spacing: -0.01em;
+      color: var(--ink-dim);
+    }
+    .ss-when-tab.active { background: var(--ink); color: var(--paper); }
+
+    .ss-time-display-row {
+      display: flex; align-items: baseline; justify-content: space-between;
+    }
+    .ss-time-mono {
+      font-family: var(--f-mono);
+      font-size: 40px; font-weight: 700;
+      letter-spacing: -0.04em; line-height: 1;
+    }
+    .ss-time-colon { opacity: 0.4; }
+    .ss-date-label { font-size: 14px; font-weight: 600; }
+
+    /* ── Suggestion chips ──────────────────────────────────────── */
+    .ss-chips {
+      display: flex; gap: 8px; overflow-x: auto;
+      scrollbar-width: none; padding-bottom: 2px;
+    }
+    .ss-chips::-webkit-scrollbar { display: none; }
+    .ss-chip {
+      flex: 0 0 auto; padding: 9px 12px;
+      border-radius: var(--r-md); background: var(--paper-2);
+      cursor: pointer; border: 1px solid transparent;
+    }
+    .ss-chip:hover { border-color: var(--line-2); }
+    .ss-chip-title { font-size: 12.5px; font-weight: 600; }
+    .ss-chip-sub   { font-size: 10.5px; color: var(--ink-dim); margin-top: 2px; font-weight: 500; }
+
+    /* ── CTA button ────────────────────────────────────────────── */
+    .ss-btn-ink {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; height: 52px; border: 0; border-radius: 999px;
+      background: var(--ink); color: var(--paper);
+      font: 600 15px/1 var(--f-sans); letter-spacing: -0.01em;
+    }
+    .ss-btn-ink:disabled { opacity: 0.44; cursor: not-allowed; }
+    .ss-btn-ink:hover:not(:disabled) { opacity: 0.88; }
+
+    /* ── Status ────────────────────────────────────────────────── */
+    .status {
+      padding: 8px 12px; border-radius: var(--r-sm);
+      font-size: 12.5px; color: var(--ink-dim);
+      background: var(--paper-2); border: 1px solid transparent;
+    }
+    .status.info  { background: var(--info-bg);  color: var(--info-text); border-color: oklch(0.82 0.04 245); }
+    .status.warn  { background: var(--warn-bg);  color: var(--warn-text); border-color: oklch(0.82 0.08 68); }
+    .status.error { background: var(--danger-bg);color: var(--danger);    border-color: oklch(0.80 0.07 25); white-space: pre-wrap; }
+    .status.muted { background: var(--paper-2);  color: var(--ink-dim); }
+
+    /* ── Advanced collapsible ──────────────────────────────────── */
+    .ss-advanced {
+      background: var(--paper-2);
+      border-radius: var(--r-md);
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+    .ss-advanced > summary {
+      padding: 12px 16px; cursor: pointer; user-select: none;
+      font-size: 13px; font-weight: 600; color: var(--ink-dim);
+      list-style: none;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ss-advanced > summary::-webkit-details-marker { display: none; }
+    .ss-advanced > summary::after { content: '↓'; font-size: 11px; }
+    .ss-advanced[open] > summary::after { content: '↑'; }
+    .ss-advanced-body { padding: 4px 12px 14px; display: grid; gap: 10px; }
+
+    /* ── Legacy panel/field (used inside advanced) ─────────────── */
+    .panel {
+      background: var(--paper); border: 1px solid var(--line);
+      border-radius: var(--r-sm); padding: 12px;
+    }
+    .panel-title {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 10px;
+    }
+    .panel-title h2, .panel-title h3 { margin: 0; font-size: 13px; font-weight: 700; }
+    .panel-title span { color: var(--ink-dim); font-size: 11px; }
+    .field { display: grid; gap: 5px; margin-bottom: 8px; }
+    .field:last-child { margin-bottom: 0; }
+    .field-label { display: block; font-size: 12px; font-weight: 600; color: var(--ink); }
+    select,
+    input[type=date], input[type=time], input[type=file],
+    input[type=text]:not(.ss-row-input) {
+      width: 100%; min-height: 40px; padding: 7px 10px;
+      border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--paper); color: var(--ink); outline: none; font-size: 13px;
+    }
+    select:focus, input[type=date]:focus, input[type=time]:focus { border-color: var(--sun-mid); }
+    input[type=range] { width: 100%; accent-color: var(--sun-mid); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .switch-list { display: grid; gap: 6px; }
+    .switch {
+      display: grid; grid-template-columns: auto 1fr; gap: 8px;
+      align-items: start; padding: 9px 10px;
+      border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--paper); cursor: pointer;
+    }
+    .switch:has(input:checked) { border-color: var(--sun-mid); background: var(--sun-tint); }
+    .switch input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--sun-mid); }
+    .switch > span { display: grid; gap: 1px; }
+    .switch strong { font-size: 12px; font-weight: 600; }
+    .switch small  { font-size: 11px; color: var(--ink-dim); }
+
+    /* ── Empty state ───────────────────────────────────────────── */
+    #empty-state {
+      margin: 16px;
+      padding: 28px 20px;
+      border: 1px dashed var(--line-2);
+      border-radius: var(--r-lg);
+      text-align: center; color: var(--ink-dim);
+    }
+    .es-title { font-size: 20px; font-weight: 800; letter-spacing: -0.025em; color: var(--ink); margin: 0 0 6px; }
+    .es-lede  { font-size: 13.5px; margin: 0 0 18px; }
+    .es-steps {
+      list-style: none; margin: 0; padding: 0;
+      display: grid; gap: 8px; counter-reset: step; text-align: left;
+    }
+    .es-steps li {
+      counter-increment: step;
+      display: grid; grid-template-columns: 28px 1fr; gap: 10px;
+      align-items: start; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: var(--r-sm);
+      background: var(--paper); color: var(--ink);
+    }
+    .es-steps li::before {
+      content: counter(step);
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      background: var(--sun); color: oklch(0.25 0.08 50);
+      font-weight: 800; font-size: 13px;
+    }
+    .es-steps strong { display: block; font-size: 13px; font-weight: 700; }
+    .es-steps span   { display: block; font-size: 11.5px; color: var(--ink-dim); margin-top: 1px; }
+
+    /* ── Preview map (in sidebar) ──────────────────────────────── */
+    #preview-map {
+      height: 170px; margin: 0 16px;
+      border-radius: var(--r-md);
+      overflow: hidden; border: 1px solid var(--line);
+    }
+
+    /* ── Result section ────────────────────────────────────────── */
+    #result {
+      display: flex; flex-direction: column;
+      animation: fade-in 220ms ease both;
+    }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+
+    .ss-result-topbar {
+      padding: 12px 16px 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ss-icon-btn {
+      width: 36px; height: 36px; border-radius: 18px;
+      background: var(--paper-2); color: var(--ink);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* Hero (diagonal split) */
+    .ss-hero-wrap { padding: 10px 16px 0; }
+    #recommendation {
+      position: relative; border-radius: var(--r-lg); overflow: hidden;
+      height: 300px;
+      background: linear-gradient(180deg,
+        oklch(0.92 0.10 75) 0%,
+        oklch(0.85 0.16 65) 60%,
+        oklch(0.78 0.18 55) 100%);
+    }
+    .ss-shade-diag {
+      position: absolute; inset: 0;
+      background: linear-gradient(180deg,
+        var(--shade-mid) 0%, var(--shade) 60%, var(--shade-2) 100%);
+      clip-path: polygon(56% 0, 100% 0, 100% 100%, 38% 100%);
+    }
+    .ss-hero-sun-label {
+      position: absolute; top: 16px; left: 18px;
+      color: oklch(0.30 0.10 50);
+    }
+    .ss-hero-shade-label {
+      position: absolute; top: 16px; right: 18px;
+      color: oklch(0.88 0.03 235); text-align: right;
+    }
+    .ss-hero-label-cap {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    }
+    .ss-hero-label-val { font-size: 10.5px; font-weight: 700; margin-top: 2px; }
+
+    .ss-hero-center {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+      padding: 0 16px;
+    }
+    .ss-hero-eyebrow {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.22em;
+      text-transform: uppercase; color: rgba(255,255,255,0.85);
+      margin-bottom: 2px;
+    }
+    #result-side {
+      margin: 0;
+      font-size: clamp(72px, 16vw, 124px);
+      line-height: 0.86; letter-spacing: -0.06em; font-weight: 900;
+      color: var(--paper);
+    }
+    .ss-pct-pill {
+      margin-top: 14px;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 9px 16px; border-radius: 999px;
+      background: rgba(255,255,255,0.92); color: var(--shade-2);
+    }
+    #result-pct {
+      font-family: var(--f-mono); font-size: 17px; font-weight: 700;
+    }
+    .ss-pct-label { font-size: 13px; font-weight: 600; }
+
+    /* Boarding stub (dark strip below hero) */
+    .ss-boarding {
+      background: var(--shade-2); color: oklch(0.88 0.02 240);
+      padding: 12px 18px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-radius: 0 0 var(--r-lg) var(--r-lg);
+    }
+    .ss-boarding-lbl {
+      text-transform: uppercase; letter-spacing: 0.12em;
+      font-size: 9.5px; font-weight: 600; color: oklch(0.60 0.04 235);
+    }
+    .ss-boarding-val {
+      font-family: var(--f-mono); font-size: 15px; font-weight: 700;
+      color: var(--paper); letter-spacing: -0.02em; margin-top: 2px;
+    }
+
+    /* Meta strip */
+    #result-meta {
+      margin: 0; padding: 8px 18px;
+      font-size: 11px; color: var(--ink-dim); font-weight: 500;
+    }
+
+    /* Segment bar */
+    .ss-segbar-section { padding: 12px 16px 0; }
+    .ss-segbar-card {
+      padding: 14px 16px;
+      background: var(--paper);
+      border-radius: var(--r-md);
+      box-shadow: var(--shadow);
+    }
+    .ss-segbar-header {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 8px;
+    }
+    .ss-segbar-total {
+      font-family: var(--f-mono); font-size: 11px;
+      color: var(--ink-dim); font-weight: 600;
+    }
+    #seg-bar {
+      height: 28px; border-radius: var(--r-sm);
+      overflow: hidden; display: flex;
+      background: var(--paper-2);
+    }
+    .ss-segbar-footer {
+      display: flex; align-items: center; gap: 14px; margin-top: 8px;
+    }
+    .ss-segbar-legend {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 600; color: var(--ink-dim);
+    }
+    .ss-segbar-swatch {
+      width: 16px; height: 4px; border-radius: 2px;
+    }
+
+    /* Metric grid */
+    .insight-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 8px; padding: 12px 16px 0;
+    }
+    .metric {
+      padding: 11px 12px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md); cursor: help;
+    }
+    .metric span {
+      display: block;
+      font-size: 9.5px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--ink-dim);
+    }
+    .metric strong {
+      display: block;
+      font-family: var(--f-mono); font-size: 17px; font-weight: 700;
+      letter-spacing: -0.02em; margin-top: 4px;
+    }
+
+    /* Detail tables */
+    .ss-details { padding: 12px 16px 24px; display: grid; gap: 8px; }
+    details.panel { padding: 0; overflow: hidden; }
+    summary {
+      min-height: 44px;
+      display: flex; align-items: center;
+      padding: 10px 14px; cursor: pointer;
+      font-size: 13px; font-weight: 600;
+      border-bottom: 1px solid var(--line);
+      list-style: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    details:not([open]) summary { border-bottom: 0; }
+    .table-wrap { overflow: auto; max-height: 280px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 1; background: var(--paper); color: var(--ink-dim); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    tbody tr:hover { background: var(--paper-2); }
+
+    /* ── Map area ──────────────────────────────────────────────── */
+    #map { position: absolute; inset: 0; }
+    .ss-map-empty {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; color: var(--ink-dim);
+      font-size: 13px; font-weight: 500;
+      pointer-events: none;
+    }
+    .ss-map-empty-icon {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--paper); border: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .leaflet-container { font: inherit; }
+    .leaflet-control-zoom a { width: 32px; height: 32px; line-height: 32px; }
+
+    /* ── Banners ───────────────────────────────────────────────── */
+    .install-banner {
+      display: none;
+      position: fixed; right: 18px; bottom: max(18px, var(--safe-bottom));
+      z-index: 100; min-height: 40px; padding: 8px 14px;
+      border: 1px solid var(--ink); border-radius: 999px;
+      background: var(--ink); color: var(--paper);
+      font-weight: 600; font-size: 13px;
+    }
+    .install-banner.show { display: inline-flex; align-items: center; }
+
+    .update-banner {
+      position: fixed; left: 50%; bottom: max(18px, var(--safe-bottom));
+      transform: translateX(-50%); z-index: 110;
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 8px 10px 8px 14px; border-radius: 999px;
+      background: var(--paper); color: var(--ink);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.14);
+      font-size: 13px;
     }
     .update-banner[hidden] { display: none; }
     .update-banner button {
-      min-height: 36px;
-      padding: 6px 14px;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      cursor: pointer;
-      font-weight: 700;
-      font-size: 0.88rem;
+      min-height: 32px; padding: 5px 12px;
+      border-radius: 999px; border: 1px solid transparent;
+      font-weight: 700; font-size: 12px;
     }
-    #update-btn { background: var(--accent); color: var(--accent-text); border-color: var(--accent-strong); }
-    #update-btn:hover { background: #ffc627; }
-    #update-dismiss { background: transparent; color: var(--muted); border-color: var(--border); }
-    #update-dismiss:hover { color: var(--text); border-color: var(--text); }
+    #update-btn     { background: var(--ink); color: var(--paper); }
+    #update-dismiss { background: transparent; color: var(--ink-dim); border-color: var(--line); }
 
     .offline-pill {
-      position: fixed;
-      left: 50%;
-      top: max(12px, var(--safe-top));
-      transform: translateX(-50%);
-      z-index: 105;
-      padding: 6px 12px;
-      border-radius: 999px;
-      background: var(--danger-bg);
-      color: var(--danger);
-      border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-      font-size: 0.8rem;
-      font-weight: 700;
+      position: fixed; left: 50%; top: max(10px, var(--safe-top));
+      transform: translateX(-50%); z-index: 105;
+      padding: 5px 12px; border-radius: 999px;
+      background: var(--danger-bg); color: var(--danger);
+      border: 1px solid oklch(0.80 0.07 25);
+      font-size: 12px; font-weight: 700;
     }
     .offline-pill[hidden] { display: none; }
 
-    .leaflet-container { font: inherit; }
-    .leaflet-control-zoom a { width: 34px; height: 34px; line-height: 34px; }
-
-    @media (min-width: 1181px) {
-      .workspace {
-        grid-template-columns: minmax(400px, 460px) minmax(0, 1fr);
-        align-items: start;
-      }
-      .control-panel {
-        max-height: calc(100dvh - 36px);
-        overflow-y: auto;
-        overflow-x: hidden;
-        scrollbar-width: thin;
-        scrollbar-gutter: stable;
-      }
-      #result {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        gap: 14px;
-      }
-      #result > #recommendation { grid-column: 1 / 2; align-self: stretch; }
-      #result > .insight-grid {
-        grid-column: 2 / 3;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        align-content: start;
-      }
-      #result > .map-panel   { grid-column: 1 / -1; }
-      #result > .details-grid { grid-column: 1 / -1; }
+    /* ── Mobile ────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .ss-workspace { flex-direction: column; height: auto; min-height: 100dvh; }
+      .ss-sidebar { flex: none; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--line); overflow: visible; }
+      .ss-map-area { height: 55vmax; min-height: 300px; }
+      #result-side { font-size: 72px; }
+      .insight-grid { grid-template-columns: repeat(2, 1fr); }
     }
-    @media (max-width: 1180px) {
-      .workspace { grid-template-columns: 1fr; }
-      .control-panel { position: static; }
-      .empty-state { min-height: 260px; }
-      .insight-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    }
-    @media (max-width: 760px) {
-      :root { --control-h: 48px; }
-      .app-shell {
-        min-height: 100vh;
-        min-height: 100svh;
-        padding: max(10px, var(--safe-top)) max(10px, var(--safe-right)) calc(18px + var(--safe-bottom)) max(10px, var(--safe-left));
-      }
-      .control-panel, .input-stack, .result-workbench, #result { gap: 10px; }
-      .brand { align-items: center; flex-direction: row; gap: 10px; }
-      .brand p { display: none; }
-      .brand h1 { font-size: 1.45rem; }
-      .runtime-chip { min-height: 26px; padding: 2px 8px; font-size: 0.75rem; }
-      .panel { padding: 12px; box-shadow: none; }
-      .panel-title { margin-bottom: 10px; }
-      .panel-title h2 { font-size: 0.92rem; }
-      .row, .details-grid { grid-template-columns: 1fr; }
-      .recommendation { grid-template-columns: 1fr; min-height: 0; }
-      .recommendation .side { font-size: 2.1rem; }
-      .recommendation .pct { font-size: 1.05rem; }
-      .recommendation .meta { max-width: none; text-align: left; }
-      .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .metric { min-height: 70px; padding: 10px; box-shadow: none; }
-      .metric strong { font-size: 0.98rem; }
-      .map-preview { height: 190px; box-shadow: none; }
-      #map { min-height: 320px; height: 52vh; height: min(54svh, 460px); }
-      .section-head { align-items: flex-start; flex-direction: column; }
-      .legend { width: 100%; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
-      .legend::-webkit-scrollbar { display: none; }
-      .legend span { flex: 0 0 auto; }
-      .table-wrap { max-height: 55svh; }
-      summary { min-height: 48px; }
-      .primary {
-        position: sticky;
-        bottom: calc(8px + var(--safe-bottom));
-        z-index: 20;
-        min-height: 54px;
-      }
-      .install-banner {
-        left: max(10px, var(--safe-left));
-        right: max(10px, var(--safe-right));
-        justify-content: center;
-      }
-    }
-    @media (max-width: 460px) {
-      .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .segmented { grid-template-columns: 1fr; }
-      .runtime-chip { white-space: normal; }
-    }
-    @media (max-width: 360px) {
-      .insight-grid { grid-template-columns: 1fr; }
-      .recommendation .side { font-size: 1.9rem; }
+    @media (max-width: 480px) {
+      .ss-form-wrap, .ss-hero-wrap, .ss-segbar-section, .insight-grid, .ss-details { padding-left: 12px; padding-right: 12px; }
+      #empty-state { margin: 12px; }
     }
   </style>
 </head>
 <body>
-  <main class="app-shell">
-    <div class="workspace">
-      <aside class="control-panel">
-        <header class="brand">
-          <div class="brand-main">
-            <h1>SunSide</h1>
-            <p>Sitzseite fuer Sonne und Schatten</p>
+  <div class="ss-workspace">
+
+    <!-- ═══════════════════════════════════ SIDEBAR ══════════════ -->
+    <aside class="ss-sidebar">
+
+      <!-- Brand -->
+      <header class="ss-brand">
+        <div class="ss-brand-left">
+          <div class="ss-brand-mark"></div>
+          <span class="ss-brand-name">SunSide</span>
+          <span id="runtime-pill" style="font-family:var(--f-mono);font-size:11px;color:var(--ink-dim);font-weight:600">lädt…</span>
+        </div>
+        <div class="ss-brand-right">
+          <span id="ss-datetime"></span>
+        </div>
+      </header>
+
+      <!-- ── Form ──────────────────────────────────────────────── -->
+      <form id="form" class="ss-form-wrap" autocomplete="off">
+
+        <!-- Main input card -->
+        <div class="ss-card">
+
+          <!-- Transport segmented control (visual) -->
+          <div class="ss-transport-seg">
+            <button type="button" id="btn-train" class="active" data-provider="osm">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/><path d="M8 17l-2 4M16 17l2 4"/></svg>
+              Zug
+            </button>
+            <button type="button" id="btn-bus" data-provider="road">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="13" rx="3"/><path d="M4 11h16"/><circle cx="8" cy="19" r="1.5"/><circle cx="16" cy="19" r="1.5"/><path d="M7 7h4M13 7h4"/></svg>
+              Bus
+            </button>
+            <button type="button" id="btn-plane" data-provider="straight">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14l8-2 5-8 2 1-3 8 6 3-1 2-7-2-4 4-1-3-3-1 1-2z"/></svg>
+              Flug
+            </button>
           </div>
-          <span class="runtime-chip" id="runtime-pill">Pyodide...</span>
-        </header>
 
-        <form id="form" class="input-stack" autocomplete="off">
-          <section class="panel">
-            <div class="panel-title">
-              <h2>Reise</h2>
-              <span>Route</span>
-            </div>
-            <div class="field">
-              <label for="provider">Reisemodus</label>
-              <select id="provider" name="provider">
-                <option value="osm">Zug - OSM-Gleisroute</option>
-                <option value="road">Auto/Bus - OSRM-Strassenroute</option>
-                <option value="gtfs">Fahrplan - GTFS-API</option>
-                <option value="straight">Flugzeug - Grosskreis</option>
-                <option value="gpx">GPX-Datei - eigene Route</option>
-              </select>
-            </div>
-            <p class="status muted" id="provider-hint">Gleisroute via Overpass, Strassenroute via OSRM, Flugzeug per Grosskreis.</p>
-          </section>
+          <!-- Hidden provider select (functional, synced to buttons) -->
+          <select id="provider" name="provider" style="display:none">
+            <option value="osm">Zug – OSM-Gleisroute</option>
+            <option value="road">Auto/Bus – OSRM</option>
+            <option value="gtfs">Fahrplan – GTFS</option>
+            <option value="straight">Flugzeug – Großkreis</option>
+            <option value="gpx">GPX-Datei</option>
+          </select>
 
-          <section class="panel hidden" id="gtfs-field">
-            <div class="panel-title">
-              <h2>Fahrplan</h2>
-              <span>GTFS</span>
-            </div>
-            <div class="field">
-              <label for="gtfs-feed">GTFS-Feed</label>
-              <select id="gtfs-feed" name="gtfs-feed"></select>
-            </div>
-            <div class="row">
-              <div class="field">
-                <label for="gtfs-board">Einstieg</label>
-                <div class="autocomplete">
-                  <input id="gtfs-board" type="text" placeholder="Villach" autocomplete="off">
-                  <div id="gtfs-board-suggestions" class="suggestions hidden" role="listbox"></div>
-                </div>
-              </div>
-              <div class="field">
-                <label for="gtfs-alight">Ausstieg</label>
-                <div class="autocomplete">
-                  <input id="gtfs-alight" type="text" placeholder="Padova" autocomplete="off">
-                  <div id="gtfs-alight-suggestions" class="suggestions hidden" role="listbox"></div>
-                </div>
-              </div>
-            </div>
-            <div class="field">
-              <label for="gtfs-trip">Fahrt</label>
-              <select id="gtfs-trip" disabled><option>Erst Halt und Datum waehlen</option></select>
-            </div>
-            <p class="status muted" id="gtfs-hint">Endpoint wird beim Laden geprueft.</p>
-          </section>
+          <div class="ss-card-div"></div>
 
-          <section class="panel" id="origin-destination">
-            <div class="panel-title">
-              <h2>Start und Ziel</h2>
-              <span>Geocoding</span>
-            </div>
-            <div class="row">
-              <div class="field">
-                <label for="origin" id="origin-label">Von</label>
+          <!-- From / To -->
+          <div id="origin-destination">
+            <div class="ss-input-row">
+              <div class="ss-row-dot"><div class="ss-row-dot-inner"></div></div>
+              <div class="ss-row-body">
+                <span class="ss-cap"><span id="origin-label">Von</span></span>
                 <div class="autocomplete">
-                  <input id="origin" name="origin" type="text" placeholder="Berlin" value="Berlin" autocomplete="off" required>
+                  <input id="origin" name="origin" type="text" class="ss-row-input" placeholder="Berlin" value="Berlin" autocomplete="off" required>
                   <div id="origin-suggestions" class="suggestions hidden" role="listbox"></div>
                 </div>
               </div>
-              <div class="field">
-                <label for="destination" id="destination-label">Nach</label>
+              <button type="button" id="swap-btn" class="ss-swap-btn" aria-label="Start und Ziel tauschen">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h13l-3-3M17 17H4l3 3"/></svg>
+              </button>
+            </div>
+            <div class="ss-input-row">
+              <div class="ss-row-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.5 7-13a7 7 0 1 0-14 0c0 5.5 7 13 7 13z"/><circle cx="12" cy="9" r="2.5"/></svg>
+              </div>
+              <div class="ss-row-body">
+                <span class="ss-cap"><span id="destination-label">Nach</span></span>
                 <div class="autocomplete">
-                  <input id="destination" name="destination" type="text" placeholder="Muenchen" value="Muenchen" autocomplete="off" required>
+                  <input id="destination" name="destination" type="text" class="ss-row-input" placeholder="München" value="Muenchen" autocomplete="off" required>
                   <div id="destination-suggestions" class="suggestions hidden" role="listbox"></div>
                 </div>
               </div>
             </div>
-          </section>
+          </div>
 
-          <div id="preview-map" class="map-preview hidden"></div>
+          <div class="ss-card-div"></div>
 
-          <section class="panel hidden" id="gpx-field">
-            <div class="panel-title">
-              <h2>GPX</h2>
-              <span>Upload</span>
+          <!-- Time -->
+          <div class="ss-time-section">
+            <div class="ss-when-row">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-dim)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              <button type="button" class="ss-when-tab active" data-tab="jetzt">Jetzt</button>
+              <button type="button" class="ss-when-tab" data-tab="heute">Heute</button>
+              <button type="button" class="ss-when-tab" data-tab="datum">Datum</button>
             </div>
-            <div class="field">
-              <label for="gpx">GPX-Datei</label>
-              <input id="gpx" name="gpx" type="file" accept=".gpx,application/gpx+xml">
+            <div class="ss-time-display-row">
+              <div>
+                <span class="ss-cap">Abfahrt</span>
+                <div class="ss-time-mono" style="margin-top:3px">
+                  <span id="ss-time-h">--</span><span class="ss-time-colon">:</span><span id="ss-time-m">--</span>
+                </div>
+              </div>
+              <div style="text-align:right">
+                <span class="ss-cap">Datum</span>
+                <div class="ss-date-label" id="ss-date-display" style="margin-top:4px">-- · --</div>
+              </div>
             </div>
-          </section>
+            <!-- Functional date/time inputs (hidden, synced to display) -->
+            <div style="display:none">
+              <input id="dep-date" name="dep-date" type="date" required>
+              <input id="dep-time" name="dep-time" type="time" required>
+            </div>
+          </div>
+        </div>
 
-          <section class="panel">
-            <div class="panel-title">
-              <h2>Zeit</h2>
-              <span>Abfahrt</span>
-            </div>
-            <div class="row">
+        <!-- Suggestion chips -->
+        <div class="ss-chips" id="ss-chips">
+          <div class="ss-chip" data-from="Wien Hbf" data-to="Graz Hbf">
+            <div class="ss-chip-title">Wien → Graz</div>
+            <div class="ss-chip-sub">Westbahn</div>
+          </div>
+          <div class="ss-chip" data-from="München Hbf" data-to="Salzburg Hbf">
+            <div class="ss-chip-title">München → Salzburg</div>
+            <div class="ss-chip-sub">ICE</div>
+          </div>
+          <div class="ss-chip" data-from="Berlin Hbf" data-to="Hamburg Hbf">
+            <div class="ss-chip-title">Berlin → Hamburg</div>
+            <div class="ss-chip-sub">ICE</div>
+          </div>
+        </div>
+
+        <!-- CTA -->
+        <button id="submit" type="submit" class="ss-btn-ink" disabled>
+          Lade Python…
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+
+        <!-- Status -->
+        <div id="status" class="status muted hidden"></div>
+
+        <!-- Advanced (collapsible) -->
+        <details class="ss-advanced" id="ss-advanced">
+          <summary>Erweiterte Einstellungen</summary>
+          <div class="ss-advanced-body">
+
+            <!-- Provider hint -->
+            <p class="status muted" id="provider-hint" style="margin:0;font-size:11.5px"></p>
+
+            <!-- GTFS -->
+            <section class="panel hidden" id="gtfs-field">
+              <div class="panel-title"><h3>Fahrplan</h3><span>GTFS</span></div>
               <div class="field">
-                <label for="dep-date">Datum</label>
-                <input id="dep-date" name="dep-date" type="date" required>
+                <label class="field-label" for="gtfs-feed">GTFS-Feed</label>
+                <select id="gtfs-feed" name="gtfs-feed"></select>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <label class="field-label" for="gtfs-board">Einstieg</label>
+                  <div class="autocomplete">
+                    <input id="gtfs-board" type="text" placeholder="Villach" autocomplete="off">
+                    <div id="gtfs-board-suggestions" class="suggestions hidden" role="listbox"></div>
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="gtfs-alight">Ausstieg</label>
+                  <div class="autocomplete">
+                    <input id="gtfs-alight" type="text" placeholder="Padova" autocomplete="off">
+                    <div id="gtfs-alight-suggestions" class="suggestions hidden" role="listbox"></div>
+                  </div>
+                </div>
               </div>
               <div class="field">
-                <label for="dep-time">Zeit</label>
-                <input id="dep-time" name="dep-time" type="time" required>
+                <label class="field-label" for="gtfs-trip">Fahrt</label>
+                <select id="gtfs-trip" disabled><option>Erst Halt und Datum wählen</option></select>
+              </div>
+              <p class="status muted" id="gtfs-hint" style="margin:0">Endpoint wird beim Laden geprüft.</p>
+            </section>
+
+            <!-- GPX -->
+            <section class="panel hidden" id="gpx-field">
+              <div class="panel-title"><h3>GPX</h3><span>Upload</span></div>
+              <div class="field">
+                <label class="field-label" for="gpx">GPX-Datei</label>
+                <input id="gpx" name="gpx" type="file" accept=".gpx,application/gpx+xml">
+              </div>
+            </section>
+
+            <!-- Time override -->
+            <div class="panel">
+              <div class="panel-title"><h3>Zeit</h3><span>Abfahrt</span></div>
+              <div class="row">
+                <div class="field">
+                  <label class="field-label" for="adv-date">Datum</label>
+                  <input type="date" id="adv-date">
+                </div>
+                <div class="field">
+                  <label class="field-label" for="adv-time">Zeit</label>
+                  <input type="time" id="adv-time">
+                </div>
+              </div>
+              <div class="field" id="duration-field">
+                <label class="field-label" for="duration">Reisedauer: <span id="duration-value">2.0</span> h</label>
+                <input id="duration" name="duration" type="range" min="0.5" max="24" step="0.5" value="2">
               </div>
             </div>
-            <div class="field" id="duration-field">
-              <label for="duration">Reisedauer: <span id="duration-value">2.0</span> h</label>
-              <input id="duration" name="duration" type="range" min="0.5" max="24" step="0.5" value="2">
-            </div>
-          </section>
 
-          <section class="panel">
-            <div class="panel-title">
-              <h2>Analyse</h2>
-              <span>Auswertung</span>
-            </div>
-            <div class="field">
-              <label id="pref-label">Praeferenz</label>
-              <div class="segmented" role="radiogroup" aria-labelledby="pref-label">
-                <label><input type="radio" name="pref" value="Schatten" checked><span>Schatten</span></label>
-                <label><input type="radio" name="pref" value="Sonne"><span>Sonne</span></label>
+            <!-- Analysis options -->
+            <div class="panel">
+              <div class="panel-title"><h3>Analyse</h3><span>Auswertung</span></div>
+              <div class="field" style="margin-bottom:10px">
+                <label class="field-label" id="pref-label">Präferenz</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" role="radiogroup" aria-labelledby="pref-label">
+                  <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;font-size:12.5px;font-weight:600">
+                    <input type="radio" name="pref" value="Schatten" checked style="accent-color:var(--sun-mid)">Schatten
+                  </label>
+                  <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;font-size:12.5px;font-weight:600">
+                    <input type="radio" name="pref" value="Sonne" style="accent-color:var(--sun-mid)">Sonne
+                  </label>
+                </div>
+              </div>
+              <div class="field" style="margin-bottom:10px">
+                <label class="field-label" for="interval">Messintervall</label>
+                <select id="interval" name="interval">
+                  <option value="auto">Automatisch</option>
+                  <option value="300">300 m</option>
+                  <option value="1000">1 km</option>
+                  <option value="5000">5 km</option>
+                  <option value="20000">20 km</option>
+                </select>
+              </div>
+              <div class="switch-list">
+                <label class="switch"><input type="checkbox" id="weather"><span><strong>Bewölkung</strong><small>Open-Meteo: bei dichten Wolken zählt die Sitzseite weniger.</small></span></label>
+                <label class="switch"><input type="checkbox" id="intensity"><span><strong>Sonnenintensität</strong><small>Niedrige Sonne wird stärker gewichtet als Mittagssonne.</small></span></label>
+                <label class="switch"><input type="checkbox" id="terrain"><span><strong>Geländeschatten</strong><small>Berge blocken die Sonne. Genauer, aber lädt Höhendaten nach.</small></span></label>
+                <label class="switch"><input type="checkbox" id="converged"><span><strong>Konvergenzmodus</strong><small>Verfeinert das Intervall iterativ. Genauer, aber spürbar langsamer.</small></span></label>
               </div>
             </div>
-            <div class="field">
-              <label for="interval">Messintervall</label>
-              <select id="interval" name="interval">
-                <option value="auto">Automatisch</option>
-                <option value="300">300 m</option>
-                <option value="1000">1 km</option>
-                <option value="5000">5 km</option>
-                <option value="20000">20 km</option>
-              </select>
-            </div>
-            <div class="switch-list">
-              <label class="switch"><input type="checkbox" id="weather"><span><strong>Bewoelkung</strong><small>Open-Meteo: bei dichten Wolken zaehlt die Sitzseite weniger.</small></span></label>
-              <label class="switch"><input type="checkbox" id="intensity"><span><strong>Sonnenintensitaet</strong><small>Niedrige Sonne wird staerker gewichtet als Mittagssonne.</small></span></label>
-              <label class="switch"><input type="checkbox" id="terrain"><span><strong>Gelaendeschatten</strong><small>Berge blocken die Sonne. Genauer, aber laedt Hoehendaten nach.</small></span></label>
-              <label class="switch"><input type="checkbox" id="converged"><span><strong>Konvergenzmodus</strong><small>Verfeinert das Intervall iterativ. Genauer, aber spuerbar langsamer.</small></span></label>
-            </div>
-          </section>
 
-          <button class="primary" id="submit" type="submit" disabled>Lade Python-Runtime...</button>
-          <div id="status" class="status muted hidden"></div>
-        </form>
-      </aside>
-
-      <section class="result-workbench" aria-live="polite">
-        <section id="empty-state" class="empty-state">
-          <div class="empty-state-inner">
-            <h2>Bereit fuer die Analyse</h2>
-            <p class="lede">In drei Schritten zur Sitzseiten-Empfehlung.</p>
-            <ol>
-              <li><div><strong>Reise waehlen</strong><span>Modus, Start und Ziel oder GTFS-/GPX-Route eingeben.</span></div></li>
-              <li><div><strong>Zeit setzen</strong><span>Datum und Abfahrt; bei freier Route auch die Reisedauer.</span></div></li>
-              <li><div><strong>Berechnen</strong><span>Optional Bewoelkung, Sonnenintensitaet oder Gelaendeschatten gewichten.</span></div></li>
-            </ol>
           </div>
-        </section>
+        </details>
 
-        <section id="result" class="hidden">
-          <div id="recommendation" class="recommendation">
-            <div>
-              <p class="recommendation-label">Empfehlung</p>
-              <p class="side" id="result-side">-</p>
-              <p class="pct" id="result-pct"></p>
-            </div>
-            <p class="meta" id="result-meta"></p>
-          </div>
+      </form><!-- /form -->
 
-          <div class="insight-grid">
-            <article class="metric" title="Abstand zwischen den Messpunkten entlang der Route."><span>Intervall</span><strong id="metric-interval">-</strong></article>
-            <article class="metric" title="Anzahl der ausgewerteten Routen-Segmente."><span>Segmente</span><strong id="metric-segments">-</strong></article>
-            <article class="metric" title="Mittlere Bewoelkung entlang der Route (Open-Meteo)."><span>Bewoelkung</span><strong id="metric-clouds">-</strong></article>
-            <article class="metric" title="Mittlere Sonnenhoehe ueber dem Horizont."><span>Sonnenhoehe</span><strong id="metric-sun">-</strong></article>
-            <article class="metric" title="Anteil der Strecke im Tunnel (Sonne irrelevant)."><span>Tunnel</span><strong id="metric-tunnel">-</strong></article>
-            <article class="metric" title="Anteil der Strecke im Bergschatten / hinter Gelaende."><span>Gelaende</span><strong id="metric-terrain">-</strong></article>
-          </div>
+      <!-- Preview map -->
+      <div id="preview-map" class="hidden" style="margin-top:12px"></div>
 
-          <section class="map-panel">
-            <div class="section-head">
-              <h2>Route</h2>
-              <div class="legend" aria-label="Kartenlegende">
-                <span><i class="swatch left"></i>Sonne links</span>
-                <span><i class="swatch right"></i>Sonne rechts</span>
-                <span><i class="swatch night"></i>Nacht</span>
-                <span><i class="swatch tunnel"></i>Tunnel</span>
-                <span><i class="swatch terrain"></i>Gelaende</span>
-              </div>
-            </div>
-            <div id="map"></div>
-          </section>
-
-          <div class="details-grid">
-            <details id="trace-panel" class="panel hidden">
-              <summary>Konvergenz</summary>
-              <div class="table-wrap">
-                <table id="trace-table">
-                  <thead><tr><th>Intervall</th><th>Segmente</th><th>Sonnenseite</th><th>Sonne</th></tr></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </details>
-
-            <details class="panel">
-              <summary>Details pro Segment</summary>
-              <div class="table-wrap">
-                <table id="segments-table">
-                  <thead><tr><th>Zeit</th><th>Kurs</th><th>Azimut</th><th>Hoehe</th><th>Intensitaet</th><th>Wolken</th><th>Faktor</th><th>Seite</th><th>Gelaende</th></tr></thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </details>
-          </div>
-        </section>
+      <!-- Empty state -->
+      <section id="empty-state" style="padding-bottom:24px">
+        <div style="margin:16px;padding:28px 20px;border:1px dashed var(--line-2);border-radius:var(--r-lg);text-align:center;color:var(--ink-dim)">
+          <h2 class="es-title">Bereit für die Analyse</h2>
+          <p class="es-lede">In drei Schritten zur Sitzseiten-Empfehlung.</p>
+          <ol class="es-steps">
+            <li><div><strong>Reise wählen</strong><span>Modus, Start und Ziel oder GTFS-/GPX-Route eingeben.</span></div></li>
+            <li><div><strong>Zeit setzen</strong><span>Datum und Abfahrt; bei freier Route auch die Reisedauer.</span></div></li>
+            <li><div><strong>Berechnen</strong><span>Optional Bewölkung, Sonnenintensität oder Geländeschatten gewichten.</span></div></li>
+          </ol>
+        </div>
       </section>
-    </div>
-  </main>
 
+      <!-- Result section -->
+      <section id="result" class="hidden" style="padding-bottom:28px">
+
+        <!-- Top bar -->
+        <div class="ss-result-topbar">
+          <button type="button" class="ss-icon-btn" id="result-back-btn" aria-label="Zurück">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <span class="ss-cap" style="color:var(--ink-dim)">SunSide · Ergebnis</span>
+          <button type="button" class="ss-icon-btn" aria-label="Teilen">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+          </button>
+        </div>
+
+        <!-- Hero: diagonal split -->
+        <div class="ss-hero-wrap">
+          <div id="recommendation">
+            <!-- Shade diagonal overlay -->
+            <div class="ss-shade-diag"></div>
+
+            <!-- Corner labels -->
+            <div class="ss-hero-sun-label">
+              <div class="ss-hero-label-cap">Sonnenseite</div>
+              <div class="ss-hero-label-val" id="hero-sun-side">rechts</div>
+            </div>
+            <div class="ss-hero-shade-label">
+              <div class="ss-hero-label-cap" style="text-align:right">Schatten</div>
+              <div class="ss-hero-label-val" id="hero-shade-side">links ✓</div>
+            </div>
+
+            <!-- Center -->
+            <div class="ss-hero-center">
+              <div class="ss-hero-eyebrow">Setz dich</div>
+              <p id="result-side">—</p>
+              <div class="ss-pct-pill">
+                <span id="result-pct"></span>
+                <span class="ss-pct-label" id="result-pct-label">Schatten unterwegs</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Boarding stub -->
+          <div class="ss-boarding">
+            <div>
+              <div class="ss-boarding-lbl">Route</div>
+              <div class="ss-boarding-val" id="boarding-route">— → —</div>
+            </div>
+            <div style="text-align:center">
+              <div class="ss-boarding-lbl">Modus</div>
+              <div class="ss-boarding-val" id="boarding-mode">—</div>
+            </div>
+            <div style="text-align:right">
+              <div class="ss-boarding-lbl">Abfahrt</div>
+              <div class="ss-boarding-val" id="boarding-time">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Meta -->
+        <p id="result-meta"></p>
+
+        <!-- Segment bar -->
+        <div class="ss-segbar-section">
+          <div class="ss-segbar-card">
+            <div class="ss-segbar-header">
+              <span class="ss-cap" style="color:var(--ink-dim)">Verlauf der Route</span>
+              <span class="ss-segbar-total" id="seg-bar-total">—</span>
+            </div>
+            <div id="seg-bar"></div>
+            <div class="ss-segbar-footer">
+              <div class="ss-segbar-legend">
+                <div class="ss-segbar-swatch" style="background:var(--sun-mid)"></div>
+                Sonne rechts
+              </div>
+              <div class="ss-segbar-legend">
+                <div class="ss-segbar-swatch" style="background:var(--shade)"></div>
+                Sonne links
+              </div>
+              <div class="ss-segbar-legend">
+                <div class="ss-segbar-swatch" style="background:var(--shade-mid)"></div>
+                Nacht
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metrics -->
+        <div class="insight-grid">
+          <article class="metric" title="Abstand zwischen Messpunkten."><span>Intervall</span><strong id="metric-interval">-</strong></article>
+          <article class="metric" title="Anzahl der Segmente."><span>Segmente</span><strong id="metric-segments">-</strong></article>
+          <article class="metric" title="Mittlere Bewölkung (Open-Meteo)."><span>Bewölkung</span><strong id="metric-clouds">-</strong></article>
+          <article class="metric" title="Mittlere Sonnenhöhe."><span>Sonnenhöhe</span><strong id="metric-sun">-</strong></article>
+          <article class="metric" title="Anteil der Strecke im Tunnel."><span>Tunnel</span><strong id="metric-tunnel">-</strong></article>
+          <article class="metric" title="Anteil im Bergschatten."><span>Gelände</span><strong id="metric-terrain">-</strong></article>
+        </div>
+
+        <!-- Detail tables -->
+        <div class="ss-details">
+          <details id="trace-panel" class="panel hidden">
+            <summary>Konvergenz</summary>
+            <div class="table-wrap">
+              <table id="trace-table">
+                <thead><tr><th>Intervall</th><th>Segmente</th><th>Sonnenseite</th><th>Sonne</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="panel">
+            <summary>Details pro Segment</summary>
+            <div class="table-wrap">
+              <table id="segments-table">
+                <thead><tr><th>Zeit</th><th>Kurs</th><th>Azimut</th><th>Höhe</th><th>Intensität</th><th>Wolken</th><th>Faktor</th><th>Seite</th><th>Gelände</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+
+      </section><!-- /result -->
+
+    </aside><!-- /sidebar -->
+
+    <!-- ═══════════════════════════════════ MAP ══════════════════ -->
+    <main class="ss-map-area">
+      <div id="map"></div>
+      <div class="ss-map-empty" id="ss-map-placeholder">
+        <div class="ss-map-empty-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-dim)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.5 7-13a7 7 0 1 0-14 0c0 5.5 7 13 7 13z"/><circle cx="12" cy="9" r="2.5"/></svg>
+        </div>
+        <span>Route erscheint hier nach der Berechnung</span>
+      </div>
+    </main>
+
+  </div><!-- /workspace -->
+
+  <!-- Install banner -->
   <button id="install-btn" class="install-banner" type="button">Installieren</button>
 
+  <!-- Update banner -->
   <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden>
-    <span>Neue Version verfuegbar.</span>
+    <span>Neue Version verfügbar.</span>
     <button id="update-btn" type="button">Aktualisieren</button>
-    <button id="update-dismiss" type="button" aria-label="Hinweis schliessen">Spaeter</button>
+    <button id="update-dismiss" type="button">Später</button>
   </div>
 
+  <!-- Offline pill -->
   <div id="offline-pill" class="offline-pill" role="status" aria-live="polite" hidden>Offline</div>
 
+  <!-- Scripts -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
-  <script type="module" src="app.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
+
+  <script>
+  // ── UI enhancements (runs after app.js via defer-order) ───────
+
+  // Transport segmented control ↔ hidden provider select
+  const transportBtns = document.querySelectorAll('.ss-transport-seg button');
+  const providerSel   = document.getElementById('provider');
+
+  function syncTransportUI(provider) {
+    transportBtns.forEach(btn => btn.classList.remove('active'));
+    const map = { osm:'btn-train', road:'btn-bus', straight:'btn-plane', gtfs:'btn-train', gpx:'btn-train' };
+    const target = document.getElementById(map[provider] || 'btn-train');
+    if (target) target.classList.add('active');
+  }
+
+  transportBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      providerSel.value = btn.dataset.provider;
+      providerSel.dispatchEvent(new Event('change'));
+      syncTransportUI(btn.dataset.provider);
+    });
+  });
+  providerSel.addEventListener('change', () => syncTransportUI(providerSel.value));
+
+  // Swap button
+  document.getElementById('swap-btn').addEventListener('click', () => {
+    const o = document.getElementById('origin');
+    const d = document.getElementById('destination');
+    [o.value, d.value] = [d.value, o.value];
+    o.dispatchEvent(new Event('input'));
+    d.dispatchEvent(new Event('input'));
+  });
+
+  // Suggestion chips
+  document.querySelectorAll('.ss-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const o = document.getElementById('origin');
+      const d = document.getElementById('destination');
+      o.value = chip.dataset.from;
+      d.value = chip.dataset.to;
+      o.dispatchEvent(new Event('input'));
+      d.dispatchEvent(new Event('input'));
+    });
+  });
+
+  // Date/time display (keeps hidden inputs in sync)
+  function refreshTimeDisplay() {
+    const depDate = document.getElementById('dep-date');
+    const depTime = document.getElementById('dep-time');
+    if (!depDate.value || !depTime.value) return;
+    const [h, m] = depTime.value.split(':');
+    document.getElementById('ss-time-h').textContent = h;
+    document.getElementById('ss-time-m').textContent = m;
+    const d   = new Date(depDate.value + 'T12:00:00');
+    const days  = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+    const months= ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+    document.getElementById('ss-date-display').textContent =
+      `${days[d.getDay()]} · ${d.getDate()}. ${months[d.getMonth()]}`;
+    // sync advanced pickers
+    const advDate = document.getElementById('adv-date');
+    const advTime = document.getElementById('adv-time');
+    if (advDate) advDate.value = depDate.value;
+    if (advTime) advTime.value = depTime.value;
+  }
+
+  document.getElementById('dep-date').addEventListener('change', refreshTimeDisplay);
+  document.getElementById('dep-time').addEventListener('change', refreshTimeDisplay);
+  refreshTimeDisplay();
+
+  // Advanced pickers → hidden inputs
+  const advDate = document.getElementById('adv-date');
+  const advTime = document.getElementById('adv-time');
+  const depDate = document.getElementById('dep-date');
+  const depTime = document.getElementById('dep-time');
+  advDate.addEventListener('change', () => { depDate.value = advDate.value; refreshTimeDisplay(); });
+  advTime.addEventListener('change', () => { depTime.value = advTime.value; refreshTimeDisplay(); });
+
+  // Live clock in header
+  function updateClock() {
+    const now = new Date();
+    const days  = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+    const months= ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+    const el = document.getElementById('ss-datetime');
+    if (el) el.textContent =
+      `${days[now.getDay()]} · ${now.getDate()}. ${months[now.getMonth()]} · ` +
+      `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+  }
+  updateClock();
+  setInterval(updateClock, 30000);
+
+  // When-tabs
+  document.querySelectorAll('.ss-when-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ss-when-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (btn.dataset.tab === 'jetzt') {
+        const now = new Date();
+        const pad = n => String(n).padStart(2,'0');
+        depDate.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+        depTime.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        refreshTimeDisplay();
+      } else {
+        document.getElementById('ss-advanced').open = true;
+      }
+    });
+  });
+
+  // Back button in result
+  document.getElementById('result-back-btn').addEventListener('click', () => {
+    document.getElementById('result').classList.add('hidden');
+    document.getElementById('empty-state').classList.remove('hidden');
+  });
+
+  // Map placeholder
+  window.addEventListener('sunside:result', () => {
+    const p = document.getElementById('ss-map-placeholder');
+    if (p) p.style.display = 'none';
+  });
+
+  // Update boarding pass header live
+  window.addEventListener('sunside:result', (e) => {
+    const d = e.detail || {};
+    const boarding = document.getElementById('boarding-route');
+    const bMode    = document.getElementById('boarding-mode');
+    const bTime    = document.getElementById('boarding-time');
+    const origin   = document.getElementById('origin').value.trim();
+    const dest     = document.getElementById('destination').value.trim();
+    if (boarding) boarding.textContent =
+      (origin.slice(0,3).toUpperCase() || '?') + ' → ' + (dest.slice(0,3).toUpperCase() || '?');
+    if (bMode) {
+      const modeMap = { osm:'Zug (OSM)', road:'Bus', straight:'Flug', gtfs:'GTFS', gpx:'GPX' };
+      bMode.textContent = modeMap[providerSel.value] || providerSel.value;
+    }
+    if (bTime) {
+      const t = document.getElementById('dep-time').value;
+      bTime.textContent = t || '—';
+    }
+    // Update hero corner labels
+    const pref = document.querySelector('input[name="pref"]:checked')?.value || 'Schatten';
+    const sideEl = document.getElementById('result-side');
+    const heroSun   = document.getElementById('hero-sun-label');
+    const heroShade = document.getElementById('hero-shade-label');
+    const pctLabel  = document.getElementById('result-pct-label');
+    if (pctLabel) pctLabel.textContent = pref === 'Schatten' ? 'Schatten unterwegs' : 'Sonne unterwegs';
+  });
+  </script>
 </body>
 </html>

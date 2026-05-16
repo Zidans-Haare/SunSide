@@ -1299,12 +1299,40 @@
   document.getElementById('result-back-btn').addEventListener('click', () => {
     document.getElementById('result').classList.add('hidden');
     document.getElementById('empty-state').classList.remove('hidden');
+    moveMapBack();
   });
 
-  // Map placeholder
+  // Map placeholder + mobile map repositioning
+  let _mapOriginalParent = null;
+  let _mapOriginalNextSibling = null;
+
+  function moveMapIntoResult() {
+    if (window.innerWidth > 900) return;
+    const mapArea = document.querySelector('.ss-map-area');
+    const segbar  = document.querySelector('.ss-segbar-section');
+    if (!mapArea || !segbar || mapArea.parentElement === document.getElementById('result')) return;
+    _mapOriginalParent = mapArea.parentElement;
+    _mapOriginalNextSibling = mapArea.nextSibling;
+    // Insert map right after the segment bar
+    segbar.insertAdjacentElement('afterend', mapArea);
+    mapArea.style.cssText = 'height:220px;border-radius:var(--r-lg);margin:0 12px;overflow:hidden;flex:none;';
+    setTimeout(() => window._sunsideMap?.invalidateSize(), 120);
+  }
+
+  function moveMapBack() {
+    const mapArea = document.querySelector('.ss-map-area');
+    if (!mapArea || !_mapOriginalParent) return;
+    _mapOriginalParent.insertBefore(mapArea, _mapOriginalNextSibling);
+    mapArea.style.cssText = '';
+    _mapOriginalParent = null;
+    _mapOriginalNextSibling = null;
+    setTimeout(() => window._sunsideMap?.invalidateSize(), 120);
+  }
+
   window.addEventListener('sunside:result', () => {
     const p = document.getElementById('ss-map-placeholder');
     if (p) p.style.display = 'none';
+    moveMapIntoResult();
   });
 
   // Update boarding pass header live

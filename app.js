@@ -1214,6 +1214,7 @@ function renderMap(result) {
 
   segmentLayer = L.layerGroup(layers).addTo(map);
   if (polyline.length > 1) map.fitBounds(routeLayer.getBounds(), { padding: [28, 28] });
+  window._sunsideMap = map;
   setTimeout(() => map.invalidateSize(), 0);
 }
 

@@ -60,8 +60,10 @@ app = FastAPI(
         '{"mode":"rail","origin":"Wien Hbf","destination":"Salzburg Hbf",'
         '"departure":"2026-05-15T09:14:00+02:00"}\n```\n\n"'
         "### Authentication\n"
-        "Pass your API key as `X-Api-Key` header. "
-        "Contact [sun.olomek.com](https://sun.olomek.com) for a key.\n\n"
+        "All `/api/v1/` endpoints require an `X-Api-Key` header.\n"
+        "Click **Authorize** (🔒) above, paste your key, and all requests in this UI will include it automatically.\n\n"
+        "**Get a key:** open an issue at [github.com/Zidans-Haare/SunSide](https://github.com/Zidans-Haare/SunSide) "
+        "or reach out via [sun.olomek.com](https://sun.olomek.com).\n\n"
         "### Route providers (auto-selected by default)\n"
         "| Mode | Default provider | Accuracy |\n"
         "|---|---|---|\n"

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Header, Query
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, model_validator
 from typing import Annotated
 
@@ -63,7 +64,10 @@ _gtfs_cache: dict[str, GtfsDatabase] = {}
 # Auth + rate-limiting
 # ---------------------------------------------------------------------------
 
-def _auth(x_api_key: str | None = Header(default=None, alias="X-Api-Key")) -> str:
+_api_key_scheme = APIKeyHeader(name="X-Api-Key", auto_error=False,
+                               description="API key — contact sun.olomek.com to get one.")
+
+def _auth(x_api_key: str | None = Depends(_api_key_scheme)) -> str:
     if not _API_KEYS:
         return "anonymous"
     if not x_api_key or x_api_key not in _API_KEYS:

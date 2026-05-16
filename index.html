@@ -819,15 +819,15 @@
               </div>
             </div>
             <!-- Functional date/time inputs — visible when Datum tab is active -->
-            <div id="ss-datetime-picker" style="display:none; margin-top:12px">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                <div>
-                  <span class="ss-cap" style="margin-bottom:4px;display:block">Datum</span>
-                  <input id="dep-date" name="dep-date" type="date" required style="width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--paper-2);color:var(--ink);font-size:14px;outline:none">
+            <div id="ss-datetime-picker" style="display:none; margin-top:10px; overflow:hidden; border-radius:var(--r-sm); border:1px solid var(--line)">
+              <div style="display:grid;grid-template-columns:1fr 1fr">
+                <div style="padding:10px 12px; border-right:1px solid var(--line)">
+                  <span class="ss-cap" style="margin-bottom:5px;display:block">Datum</span>
+                  <input id="dep-date" name="dep-date" type="date" required style="width:100%;border:0;background:transparent;color:var(--ink);font-size:15px;font-weight:600;outline:none;padding:0">
                 </div>
-                <div>
-                  <span class="ss-cap" style="margin-bottom:4px;display:block">Uhrzeit</span>
-                  <input id="dep-time" name="dep-time" type="time" required style="width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--paper-2);color:var(--ink);font-size:14px;outline:none">
+                <div style="padding:10px 12px">
+                  <span class="ss-cap" style="margin-bottom:5px;display:block">Uhrzeit</span>
+                  <input id="dep-time" name="dep-time" type="time" required style="width:100%;border:0;background:transparent;color:var(--ink);font-size:15px;font-weight:600;outline:none;padding:0">
                 </div>
               </div>
             </div>

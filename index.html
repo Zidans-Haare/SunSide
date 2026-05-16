@@ -1202,6 +1202,12 @@
     });
   });
 
+  // Select-all on focus so example values can be overwritten immediately (#6)
+  ['origin', 'destination'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('focus', () => el.select());
+  });
+
   // Back button in result
   document.getElementById('result-back-btn').addEventListener('click', () => {
     document.getElementById('result').classList.add('hidden');

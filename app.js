@@ -529,8 +529,16 @@ function gtfsApiBase() {
 }
 
 let _gtfsFeedsLoaded = false;
+function autoSelectGtfsFeed() {
+  const BUS_FEEDS = ["flixbus", "bus"];
+  const isBusMode = document.getElementById("provider")?.dataset?.gtfsMode === "road";
+  for (const opt of Array.from(els.gtfsFeed.options)) {
+    const isBusFeed = BUS_FEEDS.some(k => opt.value.toLowerCase().includes(k));
+    if (isBusMode ? isBusFeed : !isBusFeed) { els.gtfsFeed.value = opt.value; return; }
+  }
+}
 async function ensureGtfsFeeds() {
-  if (_gtfsFeedsLoaded) return;
+  if (_gtfsFeedsLoaded) { autoSelectGtfsFeed(); return; }
   const base = gtfsApiBase();
   els.gtfsHint.className = "status info";
   els.gtfsHint.textContent = `Verbinde zu ${base} …`;
@@ -550,6 +558,7 @@ async function ensureGtfsFeeds() {
       opt.textContent = `${f.name} (${f.start_date || "?"} – ${f.end_date || "?"})`;
       els.gtfsFeed.appendChild(opt);
     }
+    autoSelectGtfsFeed();
     els.gtfsHint.className = "status muted";
     els.gtfsHint.textContent = `${body.feeds.length} Feed(s) via ${base}`;
     _gtfsFeedsLoaded = true;

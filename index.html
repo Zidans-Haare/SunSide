@@ -1185,6 +1185,8 @@
   secondaryBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const p = btn.dataset.provider;
+      // Before switching to GTFS, remember if we were in bus or train mode
+      if (p === 'gtfs') providerSel.dataset.gtfsMode = providerSel.value;
       // Toggle off if already active
       if (providerSel.value === p) {
         const fallback = p === 'gpx' ? 'osm' : 'osm';

@@ -154,7 +154,7 @@
     /* ── Brand header ──────────────────────────────────────────── */
     .ss-brand {
       flex-shrink: 0;
-      padding: 18px 22px 14px;
+      padding: max(18px, calc(var(--safe-top) + 14px)) 22px 14px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -263,6 +263,23 @@
       background: var(--paper-2); color: var(--ink);
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
+    }
+
+    /* ── Secondary mode row (GTFS / GPX) ──────────────────────── */
+    .ss-mode-secondary {
+      display: flex; gap: 6px; padding: 0 8px 8px;
+      background: var(--paper-2);
+    }
+    .ss-mode-chip {
+      flex: 1; height: 34px; border-radius: var(--r-sm);
+      border: 1px solid var(--line);
+      background: var(--paper); color: var(--ink-dim);
+      font-size: 12px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+    }
+    .ss-mode-chip.active {
+      background: var(--shade-tint); color: var(--shade);
+      border-color: var(--shade-mid);
     }
 
     /* ── Autocomplete ──────────────────────────────────────────── */
@@ -727,6 +744,18 @@
             </button>
           </div>
 
+          <!-- Secondary mode: GTFS + GPX -->
+          <div class="ss-mode-secondary">
+            <button type="button" id="btn-gtfs" data-provider="gtfs" class="ss-mode-chip">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              Fahrplan (GTFS)
+            </button>
+            <button type="button" id="btn-gpx" data-provider="gpx" class="ss-mode-chip">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              GPX-Route
+            </button>
+          </div>
+
           <!-- Hidden provider select (functional, synced to buttons) -->
           <select id="provider" name="provider" style="display:none">
             <option value="osm">Zug – OSM-Gleisroute</option>
@@ -1103,11 +1132,16 @@
   const transportBtns = document.querySelectorAll('.ss-transport-seg button');
   const providerSel   = document.getElementById('provider');
 
+  const secondaryBtns = document.querySelectorAll('.ss-mode-chip');
+
   function syncTransportUI(provider) {
     transportBtns.forEach(btn => btn.classList.remove('active'));
-    const map = { osm:'btn-train', road:'btn-bus', straight:'btn-plane', gtfs:'btn-train', gpx:'btn-train' };
-    const target = document.getElementById(map[provider] || 'btn-train');
-    if (target) target.classList.add('active');
+    secondaryBtns.forEach(btn => btn.classList.remove('active'));
+    const mainMap = { osm:'btn-train', road:'btn-bus', straight:'btn-plane', gtfs:'btn-train', gpx:null };
+    const mainTarget = document.getElementById(mainMap[provider] || 'btn-train');
+    if (mainTarget) mainTarget.classList.add('active');
+    if (provider === 'gtfs') document.getElementById('btn-gtfs')?.classList.add('active');
+    if (provider === 'gpx')  document.getElementById('btn-gpx')?.classList.add('active');
   }
 
   transportBtns.forEach(btn => {
@@ -1117,6 +1151,29 @@
       syncTransportUI(btn.dataset.provider);
     });
   });
+
+  secondaryBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = btn.dataset.provider;
+      // Toggle off if already active
+      if (providerSel.value === p) {
+        const fallback = p === 'gpx' ? 'osm' : 'osm';
+        providerSel.value = fallback;
+        providerSel.dispatchEvent(new Event('change'));
+        syncTransportUI(fallback);
+        document.getElementById('ss-advanced').open = false;
+      } else {
+        providerSel.value = p;
+        providerSel.dispatchEvent(new Event('change'));
+        syncTransportUI(p);
+        // Open advanced section so GTFS/GPX fields are visible
+        document.getElementById('ss-advanced').open = true;
+        // Scroll to advanced section
+        setTimeout(() => document.getElementById('ss-advanced').scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+      }
+    });
+  });
+
   providerSel.addEventListener('change', () => syncTransportUI(providerSel.value));
 
   // Swap button

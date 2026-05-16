@@ -1001,7 +1001,7 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
           </button>
           <span class="ss-cap" style="color:var(--ink-dim)">SunSide · Ergebnis</span>
-          <button type="button" class="ss-icon-btn" aria-label="Teilen">
+          <button type="button" class="ss-icon-btn" id="share-btn" aria-label="Teilen">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
           </button>
         </div>
@@ -1344,32 +1344,109 @@
     moveMapIntoResult();
   });
 
-  // Update boarding pass header live
+  // Shared date helpers
+  const _DAYS   = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+  const _MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  // Update boarding pass live — reads correct fields per provider mode
+  let _lastShareData = null;
   window.addEventListener('sunside:result', (e) => {
-    const d = e.detail || {};
-    const boarding = document.getElementById('boarding-route');
-    const bMode    = document.getElementById('boarding-mode');
-    const bTime    = document.getElementById('boarding-time');
-    const origin   = document.getElementById('origin').value.trim();
-    const dest     = document.getElementById('destination').value.trim();
-    if (boarding) boarding.textContent =
-      (origin.slice(0,3).toUpperCase() || '?') + ' → ' + (dest.slice(0,3).toUpperCase() || '?');
+    const det      = e.detail || {};
+    const result   = det.result || {};
+    const pref     = det.pref || document.querySelector('input[name="pref"]:checked')?.value || 'Schatten';
+    const provider = providerSel.value;
+
+    // Route — GTFS mode uses board/alight inputs, others use origin/destination
+    let fromVal = '', toVal = '';
+    if (provider === 'gtfs') {
+      fromVal = document.getElementById('gtfs-board').value.trim();
+      toVal   = document.getElementById('gtfs-alight').value.trim();
+    } else {
+      fromVal = document.getElementById('origin').value.trim();
+      toVal   = document.getElementById('destination').value.trim();
+    }
+    const abbr = s => (s.split(' ')[0] || '?').slice(0, 4).toUpperCase();
+    const boardingEl = document.getElementById('boarding-route');
+    if (boardingEl) boardingEl.textContent = abbr(fromVal) + ' → ' + abbr(toVal);
+
+    // Mode label
+    const bMode = document.getElementById('boarding-mode');
     if (bMode) {
       const modeMap = { osm:'Zug (OSM)', road:'Bus', straight:'Flug', gtfs:'GTFS', gpx:'GPX' };
-      bMode.textContent = modeMap[providerSel.value] || providerSel.value;
+      bMode.textContent = modeMap[provider] || provider;
     }
+
+    // Departure time — prefer first segment timestamp, fall back to dep inputs
+    const bTime = document.getElementById('boarding-time');
     if (bTime) {
-      const t = document.getElementById('dep-time').value;
-      bTime.textContent = t || '—';
+      const seg0 = result.segments && result.segments[0];
+      if (seg0 && seg0.timestamp) {
+        const ts = new Date(seg0.timestamp);
+        const h = ts.getHours().toString().padStart(2,'0');
+        const m = ts.getMinutes().toString().padStart(2,'0');
+        bTime.textContent = h + ':' + m + ' · ' + _DAYS[ts.getDay()] + ' ' + ts.getDate() + '. ' + _MONTHS[ts.getMonth()];
+      } else {
+        const dv = document.getElementById('dep-date').value;
+        const tv = document.getElementById('dep-time').value;
+        if (dv && tv) {
+          const d = new Date(dv + 'T12:00:00');
+          bTime.textContent = tv + ' · ' + _DAYS[d.getDay()] + ' ' + d.getDate() + '. ' + _MONTHS[d.getMonth()];
+        } else {
+          bTime.textContent = tv || '—';
+        }
+      }
     }
-    // Update hero corner labels
-    const pref = document.querySelector('input[name="pref"]:checked')?.value || 'Schatten';
-    const sideEl = document.getElementById('result-side');
-    const heroSun   = document.getElementById('hero-sun-label');
-    const heroShade = document.getElementById('hero-shade-label');
-    const pctLabel  = document.getElementById('result-pct-label');
+
+    // Hero pct label
+    const pctLabel = document.getElementById('result-pct-label');
     if (pctLabel) pctLabel.textContent = pref === 'Schatten' ? 'Schatten unterwegs' : 'Sonne unterwegs';
+
+    // Cache for share button
+    _lastShareData = { fromVal, toVal, result, pref };
   });
+
+  // Share button — Web Share API with clipboard fallback
+  document.getElementById('share-btn').addEventListener('click', async () => {
+    if (!_lastShareData) return;
+    const { fromVal, toVal, result, pref } = _lastShareData;
+    const side   = pref === 'Schatten' ? result.shade_side : result.sun_side;
+    const pct    = pref === 'Schatten' ? result.shade_pct  : result.sun_pct;
+    const pctStr = pct != null ? ' — ≈ ' + Math.round(pct) + ' %' : '';
+    const depStr = document.getElementById('boarding-time').textContent || '';
+    const text   = 'SunSide: ' + fromVal + ' → ' + toVal +
+                   '\nSitz ' + (side || '?') + pctStr + ' im ' + pref +
+                   '\n' + depStr + '\nsun.olomek.com';
+
+    if (navigator.share) {
+      try { await navigator.share({ title: 'SunSide', text }); return; } catch (_) {}
+    }
+    // Clipboard fallback with visual confirmation
+    try {
+      await navigator.clipboard.writeText(text);
+      const btn = document.getElementById('share-btn');
+      const saved = Array.from(btn.childNodes).map(n => n.cloneNode(true));
+      while (btn.firstChild) btn.removeChild(btn.firstChild);
+      const ns  = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('width','14'); svg.setAttribute('height','14');
+      svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('fill','none');
+      svg.setAttribute('stroke','currentColor'); svg.setAttribute('stroke-width','2.2');
+      svg.setAttribute('stroke-linecap','round'); svg.setAttribute('stroke-linejoin','round');
+      const pl = document.createElementNS(ns, 'polyline');
+      pl.setAttribute('points','20 6 9 17 4 12');
+      svg.appendChild(pl);
+      btn.appendChild(svg);
+      setTimeout(() => { while (btn.firstChild) btn.removeChild(btn.firstChild); saved.forEach(n => btn.appendChild(n)); }, 1800);
+    } catch (_) { alert(text); }
+  });
+
+  // Initialize "Jetzt" state on page load so dep-date/dep-time are always valid
+  (function() {
+    const now = new Date(), pad = n => String(n).padStart(2,'0');
+    document.getElementById('dep-date').value = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate());
+    document.getElementById('dep-time').value = pad(now.getHours()) + ':' + pad(now.getMinutes());
+    refreshTimeDisplay();
+  })();
   </script>
 </body>
 </html>

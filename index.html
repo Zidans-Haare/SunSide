@@ -349,6 +349,16 @@
     .ss-chip-title { font-size: 12.5px; font-weight: 600; }
     .ss-chip-sub   { font-size: 10.5px; color: var(--ink-dim); margin-top: 2px; font-weight: 500; }
 
+    /* ── Submit bar — sticky inside sidebar on desktop ───────────── */
+    .ss-submit-bar {
+      position: sticky;
+      bottom: 0;
+      padding: 10px 16px max(14px, env(safe-area-inset-bottom));
+      background: linear-gradient(to bottom, transparent 0%, var(--paper) 22%);
+      z-index: 10;
+      margin-top: 4px;
+    }
+
     /* ── CTA button ────────────────────────────────────────────── */
     .ss-btn-ink {
       display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -878,15 +888,6 @@
           </div>
         </div>
 
-        <!-- CTA -->
-        <button id="submit" type="submit" class="ss-btn-ink" disabled>
-          Lade Python…
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </button>
-
-        <!-- Status -->
-        <div id="status" class="status muted hidden"></div>
-
         <!-- Advanced (collapsible) -->
         <details class="ss-advanced" id="ss-advanced">
           <summary>Erweiterte Einstellungen</summary>
@@ -973,6 +974,17 @@
 
           </div>
         </details>
+
+        <!-- Status -->
+        <div id="status" class="status muted hidden"></div>
+
+        <!-- CTA — sticky at bottom of sidebar on desktop, natural flow on mobile -->
+        <div class="ss-submit-bar">
+          <button id="submit" type="submit" class="ss-btn-ink" disabled>
+            Lade Python…
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
 
       </form><!-- /form -->
 

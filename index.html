@@ -1136,6 +1136,15 @@
     if (mainTarget) mainTarget.classList.add('active');
     if (provider === 'gtfs') document.getElementById('btn-gtfs')?.classList.add('active');
     if (provider === 'gpx')  document.getElementById('btn-gpx')?.classList.add('active');
+
+    // GTFS only makes sense for trains; hide it for Bus and Flug
+    const isTrainMode = provider === 'osm' || provider === 'gtfs';
+    const gtfsBtn = document.getElementById('btn-gtfs');
+    if (gtfsBtn) gtfsBtn.style.display = isTrainMode ? '' : 'none';
+
+    // Hide the whole secondary row if nothing is relevant (plane has no GTFS)
+    const secondaryRow = document.querySelector('.ss-mode-secondary');
+    if (secondaryRow) secondaryRow.style.display = provider === 'straight' ? 'none' : '';
   }
 
   transportBtns.forEach(btn => {

@@ -1165,10 +1165,9 @@
     if (provider === 'gtfs') document.getElementById('btn-gtfs')?.classList.add('active');
     if (provider === 'gpx')  document.getElementById('btn-gpx')?.classList.add('active');
 
-    // GTFS only makes sense for trains; hide it for Bus and Flug
-    const isTrainMode = provider === 'osm' || provider === 'gtfs';
+    // GTFS makes sense for trains AND buses (Flixbus etc.) — only hide for Flug
     const gtfsBtn = document.getElementById('btn-gtfs');
-    if (gtfsBtn) gtfsBtn.style.display = isTrainMode ? '' : 'none';
+    if (gtfsBtn) gtfsBtn.style.display = provider !== 'straight' ? '' : 'none';
 
     // Hide the whole secondary row if nothing is relevant (plane has no GTFS)
     const secondaryRow = document.querySelector('.ss-mode-secondary');

@@ -818,10 +818,18 @@
                 <div class="ss-date-label" id="ss-date-display" style="margin-top:4px">-- · --</div>
               </div>
             </div>
-            <!-- Functional date/time inputs (hidden, synced to display) -->
-            <div style="display:none">
-              <input id="dep-date" name="dep-date" type="date" required>
-              <input id="dep-time" name="dep-time" type="time" required>
+            <!-- Functional date/time inputs — visible when Datum tab is active -->
+            <div id="ss-datetime-picker" style="display:none; margin-top:12px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <span class="ss-cap" style="margin-bottom:4px;display:block">Datum</span>
+                  <input id="dep-date" name="dep-date" type="date" required style="width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--paper-2);color:var(--ink);font-size:14px;outline:none">
+                </div>
+                <div>
+                  <span class="ss-cap" style="margin-bottom:4px;display:block">Uhrzeit</span>
+                  <input id="dep-time" name="dep-time" type="time" required style="width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--paper-2);color:var(--ink);font-size:14px;outline:none">
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -898,23 +906,9 @@
               </div>
             </section>
 
-            <!-- Time override -->
-            <div class="panel">
-              <div class="panel-title"><h3>Zeit</h3><span>Abfahrt</span></div>
-              <div class="row">
-                <div class="field">
-                  <label class="field-label" for="adv-date">Datum</label>
-                  <input type="date" id="adv-date">
-                </div>
-                <div class="field">
-                  <label class="field-label" for="adv-time">Zeit</label>
-                  <input type="time" id="adv-time">
-                </div>
-              </div>
-              <div class="field" id="duration-field">
-                <label class="field-label" for="duration">Reisedauer: <span id="duration-value">2.0</span> h</label>
-                <input id="duration" name="duration" type="range" min="0.5" max="24" step="0.5" value="2">
-              </div>
+            <div class="field" id="duration-field">
+              <label class="field-label" for="duration">Reisedauer: <span id="duration-value">2.0</span> h</label>
+              <input id="duration" name="duration" type="range" min="0.5" max="24" step="0.5" value="2">
             </div>
 
             <!-- Analysis options -->
@@ -1210,24 +1204,11 @@
     const months= ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
     document.getElementById('ss-date-display').textContent =
       `${days[d.getDay()]} · ${d.getDate()}. ${months[d.getMonth()]}`;
-    // sync advanced pickers
-    const advDate = document.getElementById('adv-date');
-    const advTime = document.getElementById('adv-time');
-    if (advDate) advDate.value = depDate.value;
-    if (advTime) advTime.value = depTime.value;
   }
 
   document.getElementById('dep-date').addEventListener('change', refreshTimeDisplay);
   document.getElementById('dep-time').addEventListener('change', refreshTimeDisplay);
   refreshTimeDisplay();
-
-  // Advanced pickers → hidden inputs
-  const advDate = document.getElementById('adv-date');
-  const advTime = document.getElementById('adv-time');
-  const depDate = document.getElementById('dep-date');
-  const depTime = document.getElementById('dep-time');
-  advDate.addEventListener('change', () => { depDate.value = advDate.value; refreshTimeDisplay(); });
-  advTime.addEventListener('change', () => { depTime.value = advTime.value; refreshTimeDisplay(); });
 
   // Live clock in header
   function updateClock() {
@@ -1243,18 +1224,29 @@
   setInterval(updateClock, 30000);
 
   // When-tabs
+  const pickerEl = document.getElementById('ss-datetime-picker');
   document.querySelectorAll('.ss-when-tab').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.ss-when-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      if (btn.dataset.tab === 'jetzt') {
+      const tab = btn.dataset.tab;
+      if (tab === 'jetzt') {
         const now = new Date();
         const pad = n => String(n).padStart(2,'0');
-        depDate.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-        depTime.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        document.getElementById('dep-date').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+        document.getElementById('dep-time').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
         refreshTimeDisplay();
+        pickerEl.style.display = 'none';
+      } else if (tab === 'heute') {
+        const now = new Date();
+        const pad = n => String(n).padStart(2,'0');
+        document.getElementById('dep-date').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+        refreshTimeDisplay();
+        pickerEl.style.display = 'block';
+        document.getElementById('dep-time').focus();
       } else {
-        document.getElementById('ss-advanced').open = true;
+        pickerEl.style.display = 'block';
+        document.getElementById('dep-date').focus();
       }
     });
   });

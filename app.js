@@ -192,6 +192,24 @@ _locateBtn?.addEventListener("click", () => {
   );
 });
 
+// ---- Clear button ----
+function clearForm() {
+  _clearLocatedOrigin();
+  els.origin.value = "";
+  els.destination.value = "";
+  selectedPlace.origin = null;
+  selectedPlace.destination = null;
+  hideSuggestions();
+  if (els.gtfsBoard) els.gtfsBoard.value = "";
+  if (els.gtfsAlight) els.gtfsAlight.value = "";
+  gtfsState.boardStop = null;
+  gtfsState.alightStop = null;
+  gtfsState.trip = null;
+  if (els.gtfsTrip) { els.gtfsTrip.innerHTML = "<option>Erst Halt und Datum wählen</option>"; els.gtfsTrip.disabled = true; }
+  if (previewLayer) { previewLayer.remove(); previewLayer = null; }
+}
+$("clear-btn")?.addEventListener("click", clearForm);
+
 els.provider.addEventListener("change", updateProviderUI);
 function updateProviderUI() {
   const v = els.provider.value;
@@ -216,8 +234,7 @@ function updateProviderUI() {
     els.destinationLabel.textContent = labels[1];
     els.origin.placeholder = labels[2];
     els.destination.placeholder = labels[3];
-    if (!els.origin.value.trim()) els.origin.value = labels[2];
-    if (!els.destination.value.trim()) els.destination.value = labels[3];
+    // Placeholders update dynamically; no auto-fill of real values
   }
 
   els.providerHint.textContent = ({

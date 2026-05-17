@@ -262,6 +262,14 @@
     .ss-row-input::placeholder { color: var(--ink-dim); font-weight: 500; }
     .ss-row-input.has-locate { padding-right: 30px; }
 
+    .ss-clear-btn {
+      background: none; border: 0; padding: 0;
+      font-size: 11px; font-weight: 600; color: var(--ink-dim);
+      cursor: pointer; letter-spacing: 0.01em;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .ss-clear-btn:hover { color: var(--ink); }
+
     .ss-locate-btn {
       position: absolute; right: 0; top: 50%; transform: translateY(-45%);
       width: 26px; height: 26px; border-radius: 50%;
@@ -826,12 +834,15 @@
 
           <!-- From / To -->
           <div id="origin-destination">
+            <div style="display:flex; align-items:center; justify-content:flex-end; padding: 0 2px 4px;">
+              <button type="button" id="clear-btn" class="ss-clear-btn">Felder leeren</button>
+            </div>
             <div class="ss-input-row">
               <div class="ss-row-dot"><div class="ss-row-dot-inner"></div></div>
               <div class="ss-row-body">
                 <span class="ss-cap"><span id="origin-label">Von</span></span>
                 <div class="autocomplete">
-                  <input id="origin" name="origin" type="text" class="ss-row-input has-locate" placeholder="Berlin" value="Berlin" autocomplete="off" required>
+                  <input id="origin" name="origin" type="text" class="ss-row-input has-locate" placeholder="Berlin" autocomplete="off">
                   <button type="button" id="locate-btn" class="ss-locate-btn" aria-label="Aktuellen Standort verwenden" title="Aktuellen Standort verwenden">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" opacity="0.3"/></svg>
                   </button>
@@ -849,7 +860,7 @@
               <div class="ss-row-body">
                 <span class="ss-cap"><span id="destination-label">Nach</span></span>
                 <div class="autocomplete">
-                  <input id="destination" name="destination" type="text" class="ss-row-input" placeholder="München" value="Muenchen" autocomplete="off" required>
+                  <input id="destination" name="destination" type="text" class="ss-row-input" placeholder="München" autocomplete="off">
                   <div id="destination-suggestions" class="suggestions hidden" role="listbox"></div>
                 </div>
               </div>

@@ -596,6 +596,15 @@ function gtfsApiBase() {
   return "/api";
 }
 
+const GTFS_FEED_LABELS = {
+  db:      "Deutsche Bahn",
+  oebb:    "ÖBB",
+  flixbus: "Flixbus",
+};
+function gtfsFeedLabel(name) {
+  return GTFS_FEED_LABELS[name] || name;
+}
+
 let _gtfsFeedsLoaded = false;
 function autoSelectGtfsFeed() {
   const BUS_FEEDS = ["flixbus", "bus"];
@@ -624,7 +633,7 @@ async function ensureGtfsFeeds() {
     for (const f of body.feeds) {
       const opt = document.createElement("option");
       opt.value = f.name;
-      opt.textContent = `${f.name} (${f.start_date || "?"} – ${f.end_date || "?"})`;
+      opt.textContent = gtfsFeedLabel(f.name);
       els.gtfsFeed.appendChild(opt);
     }
     autoSelectGtfsFeed();
@@ -653,7 +662,7 @@ async function ensureGtfsFeeds() {
         for (const f of body2.feeds) {
           const opt = document.createElement("option");
           opt.value = f.name;
-          opt.textContent = `${f.name} (${f.start_date || "?"} – ${f.end_date || "?"})`;
+          opt.textContent = gtfsFeedLabel(f.name);
           els.gtfsFeed.appendChild(opt);
         }
         els.gtfsHint.className = "status muted";

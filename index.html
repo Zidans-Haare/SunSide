@@ -359,10 +359,26 @@
       flex: 0 0 auto; padding: 9px 12px;
       border-radius: var(--r-md); background: var(--paper-2);
       cursor: pointer; border: 1px solid transparent;
+      display: flex; align-items: flex-start; gap: 6px;
     }
     .ss-chip:hover { border-color: var(--line-2); }
-    .ss-chip-title { font-size: 12.5px; font-weight: 600; }
+    .ss-chip-title { font-size: 12.5px; font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ss-chip-sub   { font-size: 10.5px; color: var(--ink-dim); margin-top: 2px; font-weight: 500; }
+    .ss-chip-del {
+      flex-shrink: 0; background: none; border: none; cursor: pointer;
+      color: var(--ink-dim); font-size: 14px; line-height: 1; padding: 0 0 0 2px;
+      margin-top: -1px; opacity: 0.5;
+    }
+    .ss-chip-del:hover { opacity: 1; color: var(--ink); }
+    .ss-chip-empty { font-size: 12px; color: var(--ink-dim); padding: 9px 4px; white-space: nowrap; }
+    .ss-fav-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--ink-dim); font-size: 16px; line-height: 1; padding: 2px 4px;
+      transition: color .15s, transform .15s;
+    }
+    .ss-fav-btn:hover { color: var(--amber, #f2b705); }
+    .ss-fav-btn.saved { color: var(--amber, #f2b705); }
+    .ss-fav-btn:disabled { opacity: 0.3; cursor: default; }
 
     /* ── Submit bar — sticky inside sidebar on desktop ───────────── */
     .ss-submit-bar {
@@ -827,7 +843,8 @@
 
           <!-- From / To -->
           <div id="origin-destination">
-            <div style="display:flex; align-items:center; justify-content:flex-end; padding: 0 2px 4px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding: 0 2px 4px;">
+              <button type="button" id="fav-btn" class="ss-fav-btn" disabled title="Als Favorit speichern">☆</button>
               <button type="button" id="clear-btn" class="ss-clear-btn">Felder leeren</button>
             </div>
             <div class="ss-input-row">
@@ -898,21 +915,8 @@
           </div>
         </div>
 
-        <!-- Suggestion chips -->
-        <div class="ss-chips" id="ss-chips">
-          <div class="ss-chip" data-from="Wien Hbf" data-to="Graz Hbf">
-            <div class="ss-chip-title">Wien → Graz</div>
-            <div class="ss-chip-sub">Westbahn</div>
-          </div>
-          <div class="ss-chip" data-from="München Hbf" data-to="Salzburg Hbf">
-            <div class="ss-chip-title">München → Salzburg</div>
-            <div class="ss-chip-sub">ICE</div>
-          </div>
-          <div class="ss-chip" data-from="Berlin Hbf" data-to="Hamburg Hbf">
-            <div class="ss-chip-title">Berlin → Hamburg</div>
-            <div class="ss-chip-sub">ICE</div>
-          </div>
-        </div>
+        <!-- Favorites chips -->
+        <div class="ss-chips" id="ss-chips"></div>
 
         <!-- Advanced (collapsible) -->
         <details class="ss-advanced" id="ss-advanced">
@@ -1256,17 +1260,78 @@
     d.dispatchEvent(new Event('input'));
   });
 
-  // Suggestion chips
-  document.querySelectorAll('.ss-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const o = document.getElementById('origin');
-      const d = document.getElementById('destination');
-      o.value = chip.dataset.from;
-      d.value = chip.dataset.to;
-      o.dispatchEvent(new Event('input'));
-      d.dispatchEvent(new Event('input'));
+  // Favorites
+  const FAV_KEY = 'sunside_favorites';
+  function getFavs() { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); } catch { return []; } }
+  function saveFavs(f) { localStorage.setItem(FAV_KEY, JSON.stringify(f)); }
+
+  function renderFavChips() {
+    const container = document.getElementById('ss-chips');
+    const favs = getFavs();
+    container.innerHTML = '';
+    if (!favs.length) {
+      const empty = document.createElement('span');
+      empty.className = 'ss-chip-empty';
+      empty.textContent = '☆ Route eingeben und Stern drücken';
+      container.appendChild(empty);
+      return;
+    }
+    favs.forEach((fav, i) => {
+      const chip = document.createElement('div');
+      chip.className = 'ss-chip';
+      const body = document.createElement('div');
+      const title = document.createElement('div');
+      title.className = 'ss-chip-title';
+      title.textContent = `${fav.from} → ${fav.to}`;
+      body.appendChild(title);
+      const del = document.createElement('button');
+      del.className = 'ss-chip-del';
+      del.setAttribute('aria-label', 'Favorit entfernen');
+      del.textContent = '×';
+      del.addEventListener('click', e => {
+        e.stopPropagation();
+        const f2 = getFavs(); f2.splice(i, 1); saveFavs(f2);
+        renderFavChips(); updateFavBtn();
+      });
+      chip.appendChild(body);
+      chip.appendChild(del);
+      body.addEventListener('click', () => {
+        const o = document.getElementById('origin');
+        const d = document.getElementById('destination');
+        o.value = fav.from; d.value = fav.to;
+        o.dispatchEvent(new Event('input')); d.dispatchEvent(new Event('input'));
+      });
+      container.appendChild(chip);
     });
+  }
+
+  function updateFavBtn() {
+    const from = document.getElementById('origin').value.trim();
+    const to   = document.getElementById('destination').value.trim();
+    const btn  = document.getElementById('fav-btn');
+    btn.disabled = !from || !to;
+    const already = getFavs().some(f => f.from === from && f.to === to);
+    btn.classList.toggle('saved', already);
+    btn.textContent = already ? '★' : '☆';
+    btn.title = already ? 'Bereits gespeichert' : 'Als Favorit speichern';
+  }
+
+  document.getElementById('fav-btn').addEventListener('click', () => {
+    const from = document.getElementById('origin').value.trim();
+    const to   = document.getElementById('destination').value.trim();
+    if (!from || !to) return;
+    const favs = getFavs();
+    if (favs.some(f => f.from === from && f.to === to)) return;
+    favs.unshift({ from, to });
+    saveFavs(favs);
+    renderFavChips(); updateFavBtn();
   });
+
+  document.getElementById('origin').addEventListener('input', updateFavBtn);
+  document.getElementById('destination').addEventListener('input', updateFavBtn);
+
+  renderFavChips();
+  updateFavBtn();
 
   // Date/time display (keeps hidden inputs in sync)
   function refreshTimeDisplay() {

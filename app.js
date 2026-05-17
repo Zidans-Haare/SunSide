@@ -80,6 +80,16 @@ function describeError(err) {
 }
 
 // ---- Helpers ----
+// Expose resolved places so the favorites UI (inline script) can save/restore coords
+window._sunsideGetPlaces = () => ({
+  origin:      selectedPlace.origin      ? { ...selectedPlace.origin }      : null,
+  destination: selectedPlace.destination ? { ...selectedPlace.destination } : null,
+});
+window._sunsideSetPlaces = ({ origin, destination }) => {
+  if (origin)      selectedPlace.origin      = origin;
+  if (destination) selectedPlace.destination = destination;
+};
+
 function setStatus(msg, kind = "muted") {
   if (!msg) { els.status.classList.add("hidden"); return; }
   els.status.className = `status ${kind}`;

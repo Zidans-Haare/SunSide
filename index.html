@@ -1263,7 +1263,13 @@
       body.addEventListener('click', () => {
         const o = document.getElementById('origin');
         const d = document.getElementById('destination');
-        o.value = shortName(fav.from); d.value = shortName(fav.to);
+        o.value = fav.from; d.value = fav.to;
+        if (fav.fromLat && fav.toLat && window._sunsideSetPlaces) {
+          window._sunsideSetPlaces({
+            origin:      { lat: fav.fromLat, lon: fav.fromLon, label: fav.from, display_name: fav.from, name: fav.from },
+            destination: { lat: fav.toLat,   lon: fav.toLon,   label: fav.to,   display_name: fav.to,   name: fav.to   },
+          });
+        }
         o.dispatchEvent(new Event('input')); d.dispatchEvent(new Event('input'));
       });
       container.appendChild(chip);
@@ -1287,7 +1293,14 @@
     if (!from || !to) return;
     const favs = getFavs();
     if (favs.some(f => f.from === from && f.to === to)) return;
-    favs.unshift({ from, to });
+    const places = window._sunsideGetPlaces?.() || {};
+    favs.unshift({
+      from, to,
+      fromLat: places.origin?.lat      ?? null,
+      fromLon: places.origin?.lon      ?? null,
+      toLat:   places.destination?.lat ?? null,
+      toLon:   places.destination?.lon ?? null,
+    });
     saveFavs(favs);
     renderFavChips(); updateFavBtn();
   });

@@ -219,6 +219,8 @@ function clearForm() {
   gtfsState.trip = null;
   if (els.gtfsTrip) { els.gtfsTrip.innerHTML = "<option>Erst Halt und Datum wählen</option>"; els.gtfsTrip.disabled = true; }
   if (previewLayer) { previewLayer.remove(); previewLayer = null; }
+  els.origin.dispatchEvent(new Event("input"));
+  els.destination.dispatchEvent(new Event("input"));
 }
 $("clear-btn")?.addEventListener("click", clearForm);
 
@@ -822,8 +824,8 @@ async function fetchOverpassRail(start, end, bufferDeg = 0.25) {
   const area = (north - south) * (east - west);
   if (area > 3.0) {
     throw new Error(
-      `Strecke zu lang für OSM-Modus (Gebiet ${area.toFixed(1)} °² > 3 °²). ` +
-      "Bitte 'Flugzeug (Grosskreis)' oder 'Auto/Bus' waehlen, oder eine GPX-Datei hochladen."
+      `Strecke zu lang für OSM-Modus (${area.toFixed(1)} °²). ` +
+      "Für Fernzüge bitte 'Fahrplan (GTFS)' wählen — oder 'Flugzeug (Großkreis)' als Näherung."
     );
   }
   const query = `

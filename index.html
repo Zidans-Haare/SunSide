@@ -980,11 +980,10 @@
           </div>
         </details>
 
-        <!-- Status -->
-        <div id="status" class="status muted hidden"></div>
-
-        <!-- CTA — sticky at bottom of sidebar on desktop, natural flow on mobile -->
+        <!-- CTA — sticky at bottom of sidebar on desktop, fixed on mobile -->
         <div class="ss-submit-bar">
+          <!-- Status shown above the button -->
+          <div id="status" class="status muted hidden" style="margin-bottom:8px"></div>
           <button id="submit" type="submit" class="ss-btn-ink" disabled>
             Lade Python…
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -1264,7 +1263,7 @@
       body.addEventListener('click', () => {
         const o = document.getElementById('origin');
         const d = document.getElementById('destination');
-        o.value = fav.from; d.value = fav.to;
+        o.value = shortName(fav.from); d.value = shortName(fav.to);
         o.dispatchEvent(new Event('input')); d.dispatchEvent(new Event('input'));
       });
       container.appendChild(chip);

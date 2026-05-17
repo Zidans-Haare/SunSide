@@ -152,6 +152,7 @@ function updateProviderUI() {
   const labels = {
     osm: ["Startbahnhof", "Zielbahnhof", "Berlin", "Muenchen"],
     road: ["Startort", "Zielort", "Berlin ZOB", "Muenchen ZOB"],
+    car: ["Startort", "Zielort", "Berlin", "Muenchen"],
     straight: ["Startort oder Flughafen", "Zielort oder Flughafen", "Berlin BER", "Muenchen Flughafen"],
   }[v];
   if (labels) {
@@ -165,7 +166,8 @@ function updateProviderUI() {
 
   els.providerHint.textContent = ({
     osm: "Gleisgeometrie via OSM Overpass.",
-    road: "Strassenrouting via OSRM.",
+    road: "Busrouting via OSRM.",
+    car: "Strassenrouting via OSRM.",
     gtfs: "Konkrete Fahrt aus dem GTFS-API-Endpoint.",
     straight: "Grosskreis zwischen zwei geocodierten Punkten.",
     gpx: "Eigene GPX-Route mit Zeitmodell.",
@@ -475,7 +477,7 @@ function renderPreview(start, end) {
   }
   if (previewLayer) previewLayer.remove();
   const dashed = els.provider.value !== "straight";
-  const color = els.provider.value === "road" ? "#16a34a" : "#2563eb";
+  const color = (els.provider.value === "road" || els.provider.value === "car") ? "#16a34a" : "#2563eb";
   previewLayer = L.layerGroup([
     L.marker(start),
     L.marker(end),
@@ -531,7 +533,8 @@ function gtfsApiBase() {
 let _gtfsFeedsLoaded = false;
 function autoSelectGtfsFeed() {
   const BUS_FEEDS = ["flixbus", "bus"];
-  const isBusMode = document.getElementById("provider")?.dataset?.gtfsMode === "road";
+  const gtfsMode = document.getElementById("provider")?.dataset?.gtfsMode;
+  const isBusMode = gtfsMode === "road";  // road = bus; car has no GTFS
   for (const opt of Array.from(els.gtfsFeed.options)) {
     const isBusFeed = BUS_FEEDS.some(k => opt.value.toLowerCase().includes(k));
     if (isBusMode ? isBusFeed : !isBusFeed) { els.gtfsFeed.value = opt.value; return; }
@@ -951,7 +954,7 @@ points = browser_api.make_rail_route_from_overpass(
 )
 points
         `);
-      } else if (provider === "road") {
+      } else if (provider === "road" || provider === "car") {
   setStatus("Lade Strassenroute (OSRM)…", "info");
   const roadRoute = await fetchOsrmRoute(start, end);
   pyodide.globals.set("__coords", roadRoute.coordinates);

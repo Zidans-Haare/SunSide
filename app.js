@@ -89,6 +89,10 @@ window._sunsideSetPlaces = ({ origin, destination }) => {
   if (origin)      selectedPlace.origin      = origin;
   if (destination) selectedPlace.destination = destination;
 };
+window._sunsideResolvePlace = async (name) => {
+  const results = await searchPlaces(name, { stationOnly: false, limit: 3 });
+  return results[0] ?? null;
+};
 
 function setStatus(msg, kind = "muted") {
   if (!msg) { els.status.classList.add("hidden"); return; }

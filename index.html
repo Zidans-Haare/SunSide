@@ -1260,15 +1260,37 @@
       });
       chip.appendChild(body);
       chip.appendChild(del);
-      body.addEventListener('click', () => {
+      body.addEventListener('click', async () => {
         const o = document.getElementById('origin');
         const d = document.getElementById('destination');
         o.value = fav.from; d.value = fav.to;
         if (fav.fromLat && fav.toLat && window._sunsideSetPlaces) {
+          // Coords already known — inject directly, no geocoding needed
           window._sunsideSetPlaces({
             origin:      { lat: fav.fromLat, lon: fav.fromLon, label: fav.from, display_name: fav.from, name: fav.from },
             destination: { lat: fav.toLat,   lon: fav.toLon,   label: fav.to,   display_name: fav.to,   name: fav.to   },
           });
+        } else if (window._sunsideResolvePlace) {
+          // Old favorite without coords — geocode once, save back
+          try {
+            const [fp, tp] = await Promise.all([
+              window._sunsideResolvePlace(fav.from),
+              window._sunsideResolvePlace(fav.to),
+            ]);
+            if (fp && tp) {
+              window._sunsideSetPlaces({
+                origin:      { lat: fp.lat, lon: fp.lon, label: fav.from, display_name: fav.from, name: fav.from },
+                destination: { lat: tp.lat, lon: tp.lon, label: fav.to,   display_name: fav.to,   name: fav.to   },
+              });
+              // Patch coords into localStorage so next click needs no geocoding
+              const all = getFavs();
+              const idx = all.findIndex(f => f.from === fav.from && f.to === fav.to);
+              if (idx >= 0) {
+                all[idx] = { ...all[idx], fromLat: fp.lat, fromLon: fp.lon, toLat: tp.lat, toLon: tp.lon };
+                saveFavs(all);
+              }
+            }
+          } catch { /* geocoding failed — resolveEndpoint will try again on submit */ }
         }
         o.dispatchEvent(new Event('input')); d.dispatchEvent(new Event('input'));
       });

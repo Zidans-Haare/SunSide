@@ -1220,6 +1220,7 @@
   const FAV_KEY = 'sunside_favorites';
   function getFavs() { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '[]'); } catch { return []; } }
   function saveFavs(f) { localStorage.setItem(FAV_KEY, JSON.stringify(f)); }
+  function shortName(val) { return val.includes(' — ') ? val.split(' — ')[0].trim() : val; }
 
   function renderFavChips() {
     const container = document.getElementById('ss-chips');
@@ -1262,8 +1263,8 @@
   }
 
   function updateFavBtn() {
-    const from = document.getElementById('origin').value.trim();
-    const to   = document.getElementById('destination').value.trim();
+    const from = shortName(document.getElementById('origin').value.trim());
+    const to   = shortName(document.getElementById('destination').value.trim());
     const btn  = document.getElementById('fav-btn');
     btn.disabled = !from || !to;
     const already = getFavs().some(f => f.from === from && f.to === to);
@@ -1273,8 +1274,8 @@
   }
 
   document.getElementById('fav-btn').addEventListener('click', () => {
-    const from = document.getElementById('origin').value.trim();
-    const to   = document.getElementById('destination').value.trim();
+    const from = shortName(document.getElementById('origin').value.trim());
+    const to   = shortName(document.getElementById('destination').value.trim());
     if (!from || !to) return;
     const favs = getFavs();
     if (favs.some(f => f.from === from && f.to === to)) return;

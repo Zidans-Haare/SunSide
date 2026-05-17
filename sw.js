@@ -1,8 +1,8 @@
 // SunSide Service Worker - App-Shell-Caching.
 // Pyodide und Leaflet werden stale-while-revalidate behandelt; API-/Tile-Daten
 // bleiben network-first, damit unterwegs keine veralteten Routen erscheinen.
-const CACHE = "sunside-shell-v19";
-const RUNTIME_CACHE = "sunside-runtime-v19";
+const CACHE = "sunside-shell-v20";
+const RUNTIME_CACHE = "sunside-runtime-v20";
 const SHELL = [
   "./",
   "./index.html",

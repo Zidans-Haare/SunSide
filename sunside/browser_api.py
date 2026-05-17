@@ -393,26 +393,10 @@ def _analysis_intervals(
     *,
     converged: bool = False,
     min_interval_m: int = 20,
-    max_segments: int = 50_000,
-    max_total_segments: int = 80_000,
 ) -> list[int]:
     if not converged:
         return [int(interval_m) if interval_m else auto_interval_m(points)]
-
-    route_length_m = _route_length_m(points)
-    intervals = []
-    total = 0
-    for candidate in [2_000, 1_000, 500, 200, 100, 50, 20, 10, 5]:
-        if candidate < min_interval_m:
-            break
-        segs = route_length_m / candidate
-        if segs > max_segments:
-            continue  # skip too-fine intervals, don't abort the whole loop
-        if total + segs > max_total_segments:
-            break  # total budget exhausted
-        intervals.append(candidate)
-        total += segs
-    return intervals or [auto_interval_m(points)]
+    return [c for c in [2_000, 1_000, 500, 200, 100, 50, 20] if c >= min_interval_m]
 
 
 def _route_length_m(points: list[RoutePoint]) -> float:

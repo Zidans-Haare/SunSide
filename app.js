@@ -135,6 +135,7 @@ els.duration.addEventListener("input", () => {
 els.converged.addEventListener("change", () => {
   els.interval.disabled = els.converged.checked;
 });
+els.interval.disabled = els.converged.checked; // sync on page load
 
 els.provider.addEventListener("change", updateProviderUI);
 function updateProviderUI() {
@@ -1013,6 +1014,17 @@ points
 points = browser_api.make_great_circle_route(__sl, __so, __el, __eo, __departure, __th)
 points
         `);
+      }
+    }
+
+    // Warn if convergence + long route
+    if (useConverged) {
+      const routeKm = await pyodide.runPythonAsync(`
+round(browser_api._route_length_m(points) / 1000)
+      `);
+      if (routeKm > 150) {
+        setStatus(`Konvergenzmodus aktiv (${routeKm} km) — das dauert 1–3 Minuten. Kurz Kaffee holen ☕`, "info");
+        await new Promise(r => setTimeout(r, 80)); // let the DOM paint the message
       }
     }
 

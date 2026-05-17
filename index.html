@@ -1419,6 +1419,17 @@
     const pctLabel = document.getElementById('result-pct-label');
     if (pctLabel) pctLabel.textContent = pref === 'Schatten' ? 'Schatten unterwegs' : 'Sonne unterwegs';
 
+    // Hero corner labels — update dynamically from result
+    const heroSunSide   = document.getElementById('hero-sun-side');
+    const heroShadeSide = document.getElementById('hero-shade-side');
+    if (result.is_night) {
+      if (heroSunSide)   heroSunSide.textContent   = '—';
+      if (heroShadeSide) heroShadeSide.textContent = '—';
+    } else {
+      if (heroSunSide)   heroSunSide.textContent   = (result.sun_side   || '—') + (pref === 'Sonne'   ? ' ✓' : '');
+      if (heroShadeSide) heroShadeSide.textContent = (result.shade_side || '—') + (pref === 'Schatten' ? ' ✓' : '');
+    }
+
     // Cache for share button
     _lastShareData = { fromVal, toVal, result, pref };
   });

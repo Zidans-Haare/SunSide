@@ -1118,8 +1118,8 @@ points = browser_api.make_rail_route_from_overpass(
 points
           `);
         } catch {
-          // Strecke zu lang für Overpass — Grosskreis als Fallback
-          setStatus("OSM-Gleise nicht verfügbar (Strecke zu lang) — verwende Großkreis.", "warn");
+          // Strecke zu lang für Overpass — Grosskreis als Fallback, Hinweis auf GTFS
+          setStatus("Strecke zu lang für OSM (>~150 km Luftlinie). Für Fernzüge bitte GTFS nutzen. Berechne mit Großkreis…", "warn");
           pyodide.globals.set("__sl", start[0]); pyodide.globals.set("__so", start[1]);
           pyodide.globals.set("__el", end[0]);   pyodide.globals.set("__eo", end[1]);
           pyodide.globals.set("__departure", departureIso);

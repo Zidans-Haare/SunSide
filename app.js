@@ -404,6 +404,11 @@ function hideSuggestions(side = null) {
     activeSuggestion[currentSide] = -1;
     updateActiveSuggestion(currentSide);
   }
+  // Also close GTFS stop suggestions when hiding all
+  if (!side) {
+    els.gtfsBoardSuggestions?.classList.add("hidden");
+    els.gtfsAlightSuggestions?.classList.add("hidden");
+  }
 }
 
 function handleSuggestionKey(event, side) {
@@ -567,6 +572,40 @@ async function ensureGtfsFeeds() {
     _gtfsFeedsLoaded = true;
     refreshGtfsTrips();
   } catch (err) {
+    // If a stored custom endpoint fails, clear it and retry once with auto-detection
+    const stored = localStorage.getItem("sunside_gtfs_api");
+    if (stored) {
+      localStorage.removeItem("sunside_gtfs_api");
+      const fallback = window.location.port === "8000" ? "http://localhost:8001/api" : "/api";
+      els.gtfsHint.className = "status warn";
+      els.gtfsHint.textContent = `Gespeicherter Endpoint fehlgeschlagen, versuche ${fallback} …`;
+      try {
+        const r2 = await fetch(`${fallback}/gtfs/feeds`);
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+        const body2 = await r2.json();
+        if (!body2.feeds || !body2.feeds.length) {
+          els.gtfsHint.className = "status warn";
+          els.gtfsHint.textContent = "Keine GTFS-Feeds am Endpoint vorhanden.";
+          return;
+        }
+        while (els.gtfsFeed.firstChild) els.gtfsFeed.removeChild(els.gtfsFeed.firstChild);
+        for (const f of body2.feeds) {
+          const opt = document.createElement("option");
+          opt.value = f.name;
+          opt.textContent = `${f.name} (${f.start_date || "?"} – ${f.end_date || "?"})`;
+          els.gtfsFeed.appendChild(opt);
+        }
+        els.gtfsHint.className = "status muted";
+        els.gtfsHint.textContent = `${body2.feeds.length} Feed(s) via ${fallback}`;
+        _gtfsFeedsLoaded = true;
+        refreshGtfsTrips();
+        return;
+      } catch (err2) {
+        els.gtfsHint.className = "status error";
+        els.gtfsHint.textContent = `Fehler: ${fallback}/gtfs/feeds — ${err2.message}`;
+        return;
+      }
+    }
     els.gtfsHint.className = "status error";
     els.gtfsHint.textContent = `Fehler: ${base}/gtfs/feeds — ${err.message}`;
   }

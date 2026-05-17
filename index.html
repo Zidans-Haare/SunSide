@@ -467,39 +467,7 @@
     .switch strong { font-size: 12px; font-weight: 600; }
     .switch small  { font-size: 11px; color: var(--ink-dim); }
 
-    /* ── Empty state ───────────────────────────────────────────── */
-    #empty-state {
-      margin: 16px;
-      padding: 28px 20px;
-      border: 1px dashed var(--line-2);
-      border-radius: var(--r-lg);
-      text-align: center; color: var(--ink-dim);
-    }
-    .es-title { font-size: 20px; font-weight: 800; letter-spacing: -0.025em; color: var(--ink); margin: 0 0 6px; }
-    .es-lede  { font-size: 13.5px; margin: 0 0 18px; }
-    .es-steps {
-      list-style: none; margin: 0; padding: 0;
-      display: grid; gap: 8px; counter-reset: step; text-align: left;
-    }
-    .es-steps li {
-      counter-increment: step;
-      display: grid; grid-template-columns: 28px 1fr; gap: 10px;
-      align-items: start; padding: 10px 12px;
-      border: 1px solid var(--line); border-radius: var(--r-sm);
-      background: var(--paper); color: var(--ink);
-    }
-    .es-steps li::before {
-      content: counter(step);
-      width: 28px; height: 28px;
-      display: flex; align-items: center; justify-content: center;
-      border-radius: 50%;
-      background: var(--sun); color: oklch(0.25 0.08 50);
-      font-weight: 800; font-size: 13px;
-    }
-    .es-steps strong { display: block; font-size: 13px; font-weight: 700; }
-    .es-steps span   { display: block; font-size: 11.5px; color: var(--ink-dim); margin-top: 1px; }
-
-    /* ── Preview map (in sidebar) ──────────────────────────────── */
+/* ── Preview map (in sidebar) ──────────────────────────────── */
     #preview-map {
       height: 170px; margin: 0 16px;
       border-radius: var(--r-md);
@@ -766,9 +734,7 @@
     }
     @media (max-width: 480px) {
       .ss-form-wrap, .ss-hero-wrap, .ss-segbar-section, .insight-grid, .ss-details { padding-left: 12px; padding-right: 12px; }
-      #empty-state { margin: 12px; }
-
-      /* Even tighter: prevent any horizontal overflow */
+/* Even tighter: prevent any horizontal overflow */
       .ss-chips { padding-left: 12px; padding-right: 12px; }
     }
   </style>
@@ -1021,18 +987,8 @@
       <!-- Preview map -->
       <div id="preview-map" class="hidden" style="margin-top:12px"></div>
 
-      <!-- Empty state -->
-      <section id="empty-state" style="padding-bottom:24px">
-        <div style="margin:16px;padding:28px 20px;border:1px dashed var(--line-2);border-radius:var(--r-lg);text-align:center;color:var(--ink-dim)">
-          <h2 class="es-title">Bereit für die Analyse</h2>
-          <p class="es-lede">In drei Schritten zur Sitzseiten-Empfehlung.</p>
-          <ol class="es-steps">
-            <li><div><strong>Reise wählen</strong><span>Modus, Start und Ziel oder GTFS-/GPX-Route eingeben.</span></div></li>
-            <li><div><strong>Zeit setzen</strong><span>Datum und Abfahrt; bei freier Route auch die Reisedauer.</span></div></li>
-            <li><div><strong>Berechnen</strong><span>Optional Bewölkung, Sonnenintensität oder Geländeschatten gewichten.</span></div></li>
-          </ol>
-        </div>
-      </section>
+      <!-- Empty state placeholder (kept for JS toggle) -->
+      <section id="empty-state"></section>
 
       <!-- Result section -->
       <section id="result" class="hidden" style="padding-bottom:28px">

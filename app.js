@@ -92,6 +92,18 @@ function setSubmit(text, enabled) {
   els.submit.disabled = !enabled;
 }
 
+let _calcTimer = null;
+function startCalcTimer() {
+  const t0 = Date.now();
+  _calcTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    els.submit.textContent = `Berechne… ${s}s`;
+  }, 1000);
+}
+function stopCalcTimer() {
+  if (_calcTimer) { clearInterval(_calcTimer); _calcTimer = null; }
+}
+
 function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 }
@@ -972,7 +984,8 @@ els.form.addEventListener("submit", async (e) => {
   if (!pyodide) return;
   els.result.classList.add("hidden");
   els.emptyState.classList.remove("hidden");
-  setSubmit("Berechne…", false);
+  setSubmit("Berechne… 0s", false);
+  startCalcTimer();
 
   try {
     const provider = els.provider.value;
@@ -1027,7 +1040,7 @@ points
         } catch {
           // Full-route Overpass failed — try segment-by-segment (good for regional trains)
           try {
-            setStatus("Lade OSM-Gleise segmentweise…", "info");
+            setStatus(`Lade OSM-Gleise segmentweise… (ca. ${Math.round(apiPoints.length * 1.5)}s)`, "info");
             const segData = [];
             for (let i = 0; i < apiPoints.length - 1; i++) {
               const s = [apiPoints[i].lat, apiPoints[i].lon];
@@ -1231,6 +1244,7 @@ result
     console.error("analysis failed:", err);
     setStatus(`Fehler: ${describeError(err)}`, "error");
   } finally {
+    stopCalcTimer();
     setSubmit("Berechnen", true);
   }
 });

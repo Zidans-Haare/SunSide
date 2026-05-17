@@ -1023,7 +1023,7 @@ points
 round(browser_api._route_length_m(points) / 1000)
       `);
       if (routeKm > 150) {
-        setStatus(`Konvergenzmodus aktiv (${routeKm} km) — das dauert 1–3 Minuten. Kurz Kaffee holen ☕`, "info");
+        setStatus(`Konvergenzmodus aktiv (${routeKm} km) — das dauert 1–3 Minuten. Bitte warten.`, "info");
         await new Promise(r => setTimeout(r, 80)); // let the DOM paint the message
       }
     }
@@ -1170,15 +1170,7 @@ function renderSegmentBar(segments) {
   for (const s of cells) {
     const cell = document.createElement("div");
     cell.style.flex = "1";
-    if (s.terrain_shaded) {
-      cell.style.background = "var(--green, #10845f)";
-    } else if (!s.sun_side || s.sun_side === "night") {
-      cell.style.background = "var(--shade-mid)";
-    } else if (s.sun_side === "rechts") {
-      cell.style.background = "var(--sun-mid)";
-    } else {
-      cell.style.background = "var(--shade)";
-    }
+    cell.style.background = segmentColor(segmentKey(s));
     container.appendChild(cell);
   }
 }

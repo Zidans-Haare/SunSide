@@ -168,15 +168,11 @@
     }
     .ss-brand-mark {
       width: 30px; height: 30px;
-      border-radius: 9px;
-      background: linear-gradient(135deg, var(--sun) 0%, var(--sun-deep) 100%);
-      position: relative; overflow: hidden; flex-shrink: 0;
+      border-radius: 7px;
+      overflow: hidden; flex-shrink: 0;
     }
-    .ss-brand-mark::after {
-      content: '';
-      position: absolute; right: -5px; bottom: -5px;
-      width: 24px; height: 24px; border-radius: 50%;
-      background: var(--shade);
+    .ss-brand-mark img {
+      width: 30px; height: 30px; display: block;
     }
     .ss-brand-name {
       font-weight: 800; font-size: 18px; letter-spacing: -0.025em;
@@ -773,7 +769,7 @@
       <!-- Brand -->
       <header class="ss-brand">
         <div class="ss-brand-left">
-          <div class="ss-brand-mark"></div>
+          <div class="ss-brand-mark"><img src="assets/icon.svg" alt="" aria-hidden="true"></div>
           <span class="ss-brand-name">SunSide</span>
           <span id="runtime-pill" style="font-family:var(--f-mono);font-size:11px;color:var(--ink-dim);font-weight:600">lädt…</span>
         </div>

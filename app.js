@@ -60,6 +60,7 @@ let routeLayer = null;
 let segmentLayer = null;
 let previewMap = null;
 let previewLayer = null;
+let _originCoords = null;
 const TERRAIN_COORD_LIMIT = 8000;
 const placeCache = new Map();
 const optionState = { origin: [], destination: [] };
@@ -137,6 +138,60 @@ els.converged.addEventListener("change", () => {
 });
 els.interval.disabled = els.converged.checked; // sync on page load
 
+// ---- Location button ----
+const _locateBtn = $("locate-btn");
+const _LOCATE_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" opacity="0.3"/></svg>`;
+const _CLEAR_ICON  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+
+function _clearLocatedOrigin() {
+  _originCoords = null;
+  els.origin.value = "";
+  els.origin.readOnly = false;
+  selectedPlace.origin = null;
+  if (_locateBtn) {
+    _locateBtn.classList.remove("active");
+    _locateBtn.title = "Aktuellen Standort verwenden";
+    _locateBtn.innerHTML = _LOCATE_ICON;
+  }
+}
+
+function _setLocatedOrigin(lat, lon) {
+  _originCoords = { lat, lon };
+  els.origin.value = "Mein Standort";
+  els.origin.readOnly = true;
+  selectedPlace.origin = { lat, lon, display_name: "Mein Standort" };
+  if (_locateBtn) {
+    _locateBtn.classList.add("active");
+    _locateBtn.title = "Standort löschen";
+    _locateBtn.innerHTML = _CLEAR_ICON;
+  }
+  refreshSuggestionsAndPreview();
+}
+
+_locateBtn?.addEventListener("click", () => {
+  if (_originCoords) { _clearLocatedOrigin(); return; }
+  if (!navigator.geolocation) {
+    setStatus("Geolocation wird von diesem Browser nicht unterstützt.", "error");
+    return;
+  }
+  _locateBtn.classList.add("loading");
+  _locateBtn.disabled = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      _locateBtn.classList.remove("loading");
+      _locateBtn.disabled = false;
+      _setLocatedOrigin(pos.coords.latitude, pos.coords.longitude);
+    },
+    (err) => {
+      _locateBtn.classList.remove("loading");
+      _locateBtn.disabled = false;
+      const msgs = { 1: "Standortzugriff verweigert.", 2: "Standort konnte nicht ermittelt werden.", 3: "Standortabfrage Timeout." };
+      setStatus(msgs[err.code] || "Standortfehler.", "error");
+    },
+    { timeout: 10000, maximumAge: 60000 },
+  );
+});
+
 els.provider.addEventListener("change", updateProviderUI);
 function updateProviderUI() {
   const v = els.provider.value;
@@ -174,6 +229,10 @@ function updateProviderUI() {
     gpx: "Eigene GPX-Route mit Zeitmodell.",
   })[v];
 
+  // Hide locate button in GTFS/GPX modes (no coordinate origin possible there)
+  if (_locateBtn) _locateBtn.hidden = (v === "gtfs" || v === "gpx");
+  if ((v === "gtfs" || v === "gpx") && _originCoords) _clearLocatedOrigin();
+
   // Only refresh if user already typed something (avoid hammering Nominatim on init)
   if (els.origin.value.trim().length >= 3 || els.destination.value.trim().length >= 3) {
     refreshSuggestionsAndPreview();
@@ -183,6 +242,7 @@ updateProviderUI();
 
 const debouncedRefreshSuggestions = debounce(refreshSuggestionsAndPreview, 600);
 els.origin.addEventListener("input", () => {
+  if (_originCoords) _clearLocatedOrigin();
   selectedPlace.origin = null;
   debouncedRefreshSuggestions();
 });
@@ -939,18 +999,46 @@ points = browser_api.make_rail_route_from_overpass(
 points
           `);
         } catch {
-          // Route too long for Overpass — fall back to stop waypoints
-          const coords = apiPoints.map(p => [p.lat, p.lon]);
-          const t0 = new Date(apiPoints[0].timestamp).getTime();
-          const tN = new Date(apiPoints[apiPoints.length - 1].timestamp).getTime();
-          const durationSeconds = Math.max(60, (tN - t0) / 1000);
-          pyodide.globals.set("__coords", coords);
-          pyodide.globals.set("__departure", apiPoints[0].timestamp);
-          pyodide.globals.set("__duration_seconds", durationSeconds);
-          pyPoints = await pyodide.runPythonAsync(`
+          // Full-route Overpass failed — try segment-by-segment (good for regional trains)
+          try {
+            setStatus("Lade OSM-Gleise segmentweise…", "info");
+            const segData = [];
+            for (let i = 0; i < apiPoints.length - 1; i++) {
+              const s = [apiPoints[i].lat, apiPoints[i].lon];
+              const e = [apiPoints[i + 1].lat, apiPoints[i + 1].lon];
+              const buf = 0.08;
+              const area = (Math.abs(e[0] - s[0]) + 2 * buf) * (Math.abs(e[1] - s[1]) + 2 * buf);
+              let ov = null;
+              if (area <= 2.0) {
+                try { ov = await fetchOverpassRail(s, e, buf); } catch {}
+              }
+              segData.push({
+                overpass_json: ov ? JSON.stringify(ov) : null,
+                start_lat: s[0], start_lon: s[1],
+                end_lat: e[0], end_lon: e[1],
+                departure: apiPoints[i].timestamp,
+                arrival: apiPoints[i + 1].timestamp,
+              });
+            }
+            pyodide.globals.set("__seg_data", segData);
+            pyPoints = await pyodide.runPythonAsync(`
+points = browser_api.build_route_from_osm_segments(__seg_data.to_py())
+points
+            `);
+          } catch {
+            // Absolute fallback: stop-to-stop straight line with GTFS timestamps
+            const coords = apiPoints.map(p => [p.lat, p.lon]);
+            const t0 = new Date(apiPoints[0].timestamp).getTime();
+            const tN = new Date(apiPoints[apiPoints.length - 1].timestamp).getTime();
+            const durationSeconds = Math.max(60, (tN - t0) / 1000);
+            pyodide.globals.set("__coords", coords);
+            pyodide.globals.set("__departure", apiPoints[0].timestamp);
+            pyodide.globals.set("__duration_seconds", durationSeconds);
+            pyPoints = await pyodide.runPythonAsync(`
 points = browser_api.make_polyline_route(__coords.to_py(), __departure, __duration_seconds)
 points
-          `);
+            `);
+          }
         }
       } else {
         // Feed has shape data (OeBB, Flixbus) — use directly
@@ -967,17 +1055,25 @@ points
         `);
       }
     } else {
-      const origin = els.origin.value.trim();
+      const origin = _originCoords ? "Mein Standort" : els.origin.value.trim();
       const destination = els.destination.value.trim();
-      if (!origin || !destination) throw new Error("Start und Ziel angeben.");
+      if ((!_originCoords && !origin) || !destination) throw new Error("Start und Ziel angeben.");
 
-      setStatus("Suche Start/Ziel…", "info");
-      const [originPlace, destinationPlace] = await Promise.all([
-        resolveEndpoint(origin, "origin"),
-        resolveEndpoint(destination, "destination"),
-      ]);
-      const start = [originPlace.lat, originPlace.lon];
-      const end = [destinationPlace.lat, destinationPlace.lon];
+      let start, end;
+      if (_originCoords) {
+        start = [_originCoords.lat, _originCoords.lon];
+        setStatus("Suche Ziel…", "info");
+        const destinationPlace = await resolveEndpoint(destination, "destination");
+        end = [destinationPlace.lat, destinationPlace.lon];
+      } else {
+        setStatus("Suche Start/Ziel…", "info");
+        const [originPlace, destinationPlace] = await Promise.all([
+          resolveEndpoint(origin, "origin"),
+          resolveEndpoint(destination, "destination"),
+        ]);
+        start = [originPlace.lat, originPlace.lon];
+        end = [destinationPlace.lat, destinationPlace.lon];
+      }
 
       if (provider === "osm") {
         setStatus("Lade OSM-Gleise…", "info");

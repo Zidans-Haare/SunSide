@@ -260,6 +260,20 @@
       color: var(--ink); padding: 3px 0 0;
     }
     .ss-row-input::placeholder { color: var(--ink-dim); font-weight: 500; }
+    .ss-row-input.has-locate { padding-right: 30px; }
+
+    .ss-locate-btn {
+      position: absolute; right: 0; top: 50%; transform: translateY(-45%);
+      width: 26px; height: 26px; border-radius: 50%;
+      background: transparent; color: var(--ink-dim);
+      border: 0; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, background 0.15s;
+    }
+    .ss-locate-btn:hover { color: var(--ink); background: var(--paper-2); }
+    .ss-locate-btn.active { color: var(--blue); }
+    .ss-locate-btn.loading { animation: ss-pulse 1s ease-in-out infinite; }
+    @keyframes ss-pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
     .ss-swap-btn {
       width: 34px; height: 34px; border-radius: 17px;
@@ -817,7 +831,10 @@
               <div class="ss-row-body">
                 <span class="ss-cap"><span id="origin-label">Von</span></span>
                 <div class="autocomplete">
-                  <input id="origin" name="origin" type="text" class="ss-row-input" placeholder="Berlin" value="Berlin" autocomplete="off" required>
+                  <input id="origin" name="origin" type="text" class="ss-row-input has-locate" placeholder="Berlin" value="Berlin" autocomplete="off" required>
+                  <button type="button" id="locate-btn" class="ss-locate-btn" aria-label="Aktuellen Standort verwenden" title="Aktuellen Standort verwenden">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" opacity="0.3"/></svg>
+                  </button>
                   <div id="origin-suggestions" class="suggestions hidden" role="listbox"></div>
                 </div>
               </div>

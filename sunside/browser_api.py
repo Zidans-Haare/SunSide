@@ -253,6 +253,46 @@ def make_rail_route_from_overpass(
     return points
 
 
+def build_route_from_osm_segments(segments: list) -> list[RoutePoint]:
+    """Stitch per-stop OSM segments into one route.
+
+    Each segment dict has:
+      overpass_json  — JSON string from Overpass, or None/falsy for straight-line fallback
+      start_lat, start_lon, end_lat, end_lon  — stop coordinates
+      departure, arrival  — ISO 8601 timestamps from GTFS
+    """
+    import json as _json
+
+    result: list[RoutePoint] = []
+    for seg in segments:
+        dep = _parse_iso(str(_js_value(seg, "departure")))
+        arr = _parse_iso(str(_js_value(seg, "arrival")))
+        travel_h = max(0.001, (arr - dep).total_seconds() / 3600)
+        s_lat = float(_js_value(seg, "start_lat"))
+        s_lon = float(_js_value(seg, "start_lon"))
+        e_lat = float(_js_value(seg, "end_lat"))
+        e_lon = float(_js_value(seg, "end_lon"))
+        ov_raw = _js_value(seg, "overpass_json")
+
+        try:
+            if not ov_raw:
+                raise ValueError("no overpass")
+            ov = _json.loads(str(ov_raw))
+            seg_pts = make_rail_route_from_overpass(
+                ov, s_lat, s_lon, e_lat, e_lon, dep.isoformat(), travel_h
+            )
+        except Exception:
+            seg_pts = [
+                RoutePoint(lat=s_lat, lon=s_lon, timestamp=dep),
+                RoutePoint(lat=e_lat, lon=e_lon, timestamp=arr),
+            ]
+
+        if result and seg_pts:
+            seg_pts = seg_pts[1:]
+        result.extend(seg_pts)
+    return result
+
+
 def make_gpx_route(gpx_text: str, departure_iso: str, default_speed_kmh: float = 80.0) -> list[RoutePoint]:
     departure = _parse_iso(departure_iso)
     gpx = gpxpy.parse(gpx_text)

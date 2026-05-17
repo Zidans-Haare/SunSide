@@ -1086,19 +1086,32 @@ points
 
       if (provider === "osm") {
         setStatus("Lade OSM-Gleise…", "info");
-        const overpass = await fetchOverpassRail(start, end);
-        pyodide.globals.set("__overpass", overpass);
-        pyodide.globals.set("__sl", start[0]); pyodide.globals.set("__so", start[1]);
-        pyodide.globals.set("__el", end[0]);   pyodide.globals.set("__eo", end[1]);
-        pyodide.globals.set("__departure", departureIso);
-        setStatus("Baue Bahn-Route (Dijkstra)…", "info");
-        pyPoints = await pyodide.runPythonAsync(`
+        try {
+          const overpass = await fetchOverpassRail(start, end);
+          pyodide.globals.set("__overpass", overpass);
+          pyodide.globals.set("__sl", start[0]); pyodide.globals.set("__so", start[1]);
+          pyodide.globals.set("__el", end[0]);   pyodide.globals.set("__eo", end[1]);
+          pyodide.globals.set("__departure", departureIso);
+          setStatus("Baue Bahn-Route (Dijkstra)…", "info");
+          pyPoints = await pyodide.runPythonAsync(`
 points = browser_api.make_rail_route_from_overpass(
     __overpass.to_py(), __sl, __so, __el, __eo,
     __departure,
 )
 points
-        `);
+          `);
+        } catch {
+          // Strecke zu lang für Overpass — Grosskreis als Fallback
+          setStatus("OSM-Gleise nicht verfügbar (Strecke zu lang) — verwende Großkreis.", "warn");
+          pyodide.globals.set("__sl", start[0]); pyodide.globals.set("__so", start[1]);
+          pyodide.globals.set("__el", end[0]);   pyodide.globals.set("__eo", end[1]);
+          pyodide.globals.set("__departure", departureIso);
+          pyodide.globals.set("__th", travelHours);
+          pyPoints = await pyodide.runPythonAsync(`
+points = browser_api.make_great_circle_route(__sl, __so, __el, __eo, __departure, __th)
+points
+          `);
+        }
       } else if (provider === "road" || provider === "car") {
   setStatus("Lade Strassenroute (OSRM)…", "info");
   const roadRoute = await fetchOsrmRoute(start, end);

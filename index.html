@@ -722,12 +722,19 @@
       }
       .ss-mode-chip { height: 44px; }
 
-      /* Safe area at bottom of scrollable content */
+      /* Submit bar fixed at viewport bottom on mobile */
+      .ss-submit-bar {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        padding: 10px 16px max(16px, env(safe-area-inset-bottom));
+        z-index: 100;
+      }
+      /* Push form content above the fixed bar */
       .ss-form-wrap {
-        padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 12px));
+        padding-bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px));
       }
       #result {
-        padding-bottom: max(32px, calc(env(safe-area-inset-bottom) + 20px)) !important;
+        padding-bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px)) !important;
       }
 
       /* Momentum scrolling for suggestion chips */

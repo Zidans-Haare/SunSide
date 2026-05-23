@@ -147,6 +147,23 @@ function analysisInterval() {
   return Number.parseInt(els.interval.value, 10);
 }
 
+/**
+ * Returns the local timezone offset string (e.g. "+02:00" or "-05:00") for a
+ * given local date/time. Using the actual date/time (not "now") is important
+ * because DST may differ between today and the chosen departure date.
+ */
+function localTzOffset(year, month, day, hour, minute) {
+  // new Date(year, month-1, ...) creates the date in the *local* timezone, so
+  // getTimezoneOffset() gives the correct DST-aware offset for that moment.
+  const d = new Date(year, month - 1, day, hour, minute, 0);
+  const totalMinutes = -d.getTimezoneOffset(); // positive = east of UTC
+  const sign = totalMinutes >= 0 ? "+" : "-";
+  const absMin = Math.abs(totalMinutes);
+  const hh = Math.floor(absMin / 60).toString().padStart(2, "0");
+  const mm = (absMin % 60).toString().padStart(2, "0");
+  return `${sign}${hh}:${mm}`;
+}
+
 // Initialize date/time fields
 (function initDateTime() {
   const now = new Date();
@@ -1005,7 +1022,13 @@ els.form.addEventListener("submit", async (e) => {
 
   try {
     const provider = els.provider.value;
-    const departureIso = `${els.depDate.value}T${els.depTime.value}:00`;
+    // Build a timezone-aware ISO string so astral receives the correct local
+    // time, not UTC. Without the offset astral would mis-calculate sun position
+    // by up to ±12 h (typically 2 h off in Central Europe summer = "night" at 18:30).
+    const [depYear, depMonth, depDay] = els.depDate.value.split("-").map(Number);
+    const [depHour, depMinute] = els.depTime.value.split(":").map(Number);
+    const tzOffset = localTzOffset(depYear, depMonth, depDay, depHour, depMinute);
+    const departureIso = `${els.depDate.value}T${els.depTime.value}:00${tzOffset}`;
     const travelHours = parseFloat(els.duration.value);
     const intervalM = analysisInterval();
     const useConverged = els.converged.checked;

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pytest
 from sunside.models import RoutePoint
 from sunside.sun_analysis.calculator import bearing, haversine_m, analyze_segment
@@ -109,3 +109,61 @@ def test_analyze_segment_tunnel_one_endpoint():
                     in_tunnel=True)
     seg = analyze_segment(p1, p2)
     assert seg.sun_side == "tunnel"
+    assert seg.intensity_factor == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Regression: timezone-naive timestamps were interpreted as UTC by astral,
+# causing "Nacht" to be reported 2 hours too early in CEST (UTC+2) — the
+# exact bug reported by the user for the trip Spital → Villach at 18:30 CEST.
+# ---------------------------------------------------------------------------
+
+def test_cest_1830_is_daytime_not_night():
+    """
+    18:30 local time (CEST = UTC+2) in Kärnten on 22 May is full afternoon sun
+    (~20° elevation).  If the timestamp is naive and astral treats it as UTC,
+    the computed time would be 18:30 UTC = 20:30 CEST — near sunset → "night".
+    With the correct tz-aware timestamp the result must be "links" or "rechts".
+    """
+    # 18:30 CEST = 16:30 UTC → sun at ~20° in Kärnten
+    cest = timezone(timedelta(hours=2))
+    ts = datetime(2026, 5, 22, 18, 30, 0, tzinfo=cest)
+
+    p1 = RoutePoint(lat=46.8, lon=13.5, timestamp=ts)           # Spital a.d. Drau area
+    p2 = RoutePoint(lat=46.6, lon=13.85, timestamp=ts + timedelta(minutes=30))  # Villach
+
+    seg = analyze_segment(p1, p2)
+    assert seg.sun_elevation > 10, (
+        f"Expected sun well above horizon at 18:30 CEST in Kärnten, "
+        f"got elevation={seg.sun_elevation:.1f}°. "
+        "Timezone-naive datetime was probably passed to astral (UTC confusion)."
+    )
+    assert seg.sun_side in ("links", "rechts"), (
+        f"Expected daytime side, got '{seg.sun_side}' — app wrongly reported night."
+    )
+
+
+def test_naive_datetime_bug_demo():
+    """
+    Documents the *wrong* behaviour that caused the original bug report:
+    a naive 18:30 is treated by astral as UTC → sun barely above/below horizon.
+    This test shows the difference is > 15° — large enough to flip day→night.
+    """
+    naive_ts = datetime(2026, 5, 22, 18, 30, 0)          # no tzinfo → astral reads as UTC
+    cest = timezone(timedelta(hours=2))
+    aware_ts = datetime(2026, 5, 22, 18, 30, 0, tzinfo=cest)  # correct local time
+
+    p1_naive = RoutePoint(lat=46.8, lon=13.5, timestamp=naive_ts)
+    p2_naive = RoutePoint(lat=46.6, lon=13.85, timestamp=naive_ts)
+    p1_aware = RoutePoint(lat=46.8, lon=13.5, timestamp=aware_ts)
+    p2_aware = RoutePoint(lat=46.6, lon=13.85, timestamp=aware_ts)
+
+    seg_naive = analyze_segment(p1_naive, p2_naive)
+    seg_aware = analyze_segment(p1_aware, p2_aware)
+
+    # Naive reads UTC → sun near/below horizon; aware reads CEST → sun high
+    assert seg_aware.sun_elevation - seg_naive.sun_elevation > 15, (
+        "Expected at least 15° difference between naive-UTC and CEST-aware datetimes "
+        f"at 18:30 in Kärnten. Got naive={seg_naive.sun_elevation:.1f}°, "
+        f"aware={seg_aware.sun_elevation:.1f}°"
+    )

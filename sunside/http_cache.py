@@ -19,7 +19,7 @@ from pathlib import Path
 
 import requests
 
-DEFAULT_CACHE_PATH = Path("data/http_cache.sqlite")
+DEFAULT_CACHE_PATH = Path(__file__).parent.parent / "data/http_cache.sqlite"
 DEFAULT_TTL_SECONDS = 7 * 24 * 3600  # one week
 
 _LOCK = threading.Lock()

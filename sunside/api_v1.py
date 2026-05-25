@@ -18,9 +18,11 @@ Rate limiting:
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -35,7 +37,7 @@ from typing import Annotated
 from sunside.flight import make_great_circle_route
 from sunside.models import RoutePoint
 from sunside.route_providers.gtfs_db import GtfsDatabase
-from sunside.route_providers.nominatim import geocode_place
+from sunside.route_providers.nominatim import geocode_place, search_places
 from sunside.route_providers.osm import OsmRailProvider
 from sunside.route_providers.osrm import OsrmRoadProvider
 from sunside.sun_analysis.analyzer import analyze, analyze_converged
@@ -43,11 +45,14 @@ from sunside.sun_analysis.calculator import haversine_m
 from sunside.terrain import TerrainConfig, TerrainProvider
 from sunside.weather import OpenMeteoWeatherProvider
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["SunSide API v1"])
 
 _API_VERSION = "1.0"
-_GTFS_DIR = Path("data/gtfs")
+# Absolute path so the server works regardless of the working directory
+# at uvicorn start-up (e.g. when launched via systemd from /).
+_GTFS_DIR = Path(__file__).parent.parent / "data/gtfs"
 _MAX_BATCH = int(os.getenv("SUNSIDE_MAX_BATCH", "50"))
 _RATE_LIMIT = int(os.getenv("SUNSIDE_RATE_LIMIT", "60"))
 _BATCH_RATE_LIMIT = int(os.getenv("SUNSIDE_BATCH_RATE_LIMIT", "10"))
@@ -371,15 +376,29 @@ class BatchResponse(BaseModel):
 # Route orchestration
 # ---------------------------------------------------------------------------
 
-def _resolve_coords(req: RecommendRequest) -> tuple[tuple[float, float], tuple[float, float]]:
+def _geocode_station(place: str) -> tuple[float, float]:
+    """Geocode preferring railway stations (for rail routing accuracy).
+    Falls back to generic geocoding if no station result is found."""
+    results = search_places(place, station_only=True, limit=1)
+    if results:
+        return results[0].lat, results[0].lon
+    return geocode_place(place)
+
+
+def _resolve_coords(
+    req: RecommendRequest,
+    *,
+    station_only: bool = False,
+) -> tuple[tuple[float, float], tuple[float, float]]:
     if req.origin_coords and req.destination_coords:
         return (
             (req.origin_coords.lat, req.origin_coords.lon),
             (req.destination_coords.lat, req.destination_coords.lon),
         )
     if req.origin and req.destination:
-        start = geocode_place(req.origin)
-        end = geocode_place(req.destination)
+        _gc = _geocode_station if station_only else geocode_place
+        start = _gc(req.origin)
+        end = _gc(req.destination)
         return start, end
     raise HTTPException(400, "Cannot resolve coordinates: provide origin+destination or origin_coords+destination_coords.")
 
@@ -521,10 +540,12 @@ def _resolve_route(req: RecommendRequest, gtfs_dbs: dict[str, GtfsDatabase]) -> 
         return points, "great_circle"
 
     # --- Rail: try OSM, fall back to great-circle ---
+    # Use station_only=True so "Villach" resolves to the train station,
+    # not the city centre — critical for OSM track-graph snapping accuracy.
     if req.mode == TransportMode.rail:
         if req.provider in (ProviderHint.auto, ProviderHint.osm):
             try:
-                start, end = _resolve_coords(req)
+                start, end = _resolve_coords(req, station_only=True)
                 prov = OsmRailProvider()
                 points = prov.get_route_between_coordinates(start, end, departure, travel_hours=travel_h)
                 return points, "osm"
@@ -535,7 +556,7 @@ def _resolve_route(req: RecommendRequest, gtfs_dbs: dict[str, GtfsDatabase]) -> 
                     raise HTTPException(503, f"OSM provider failed: {exc}") from exc
                 # auto mode: fall through to great-circle
 
-        start, end = _resolve_coords(req)
+        start, end = _resolve_coords(req, station_only=True)
         points = make_great_circle_route(start, end, departure, travel_hours=travel_h)
         return points, "great_circle"
 
@@ -796,8 +817,8 @@ def _open_gtfs_dbs() -> dict[str, GtfsDatabase]:
         if p.stem not in _gtfs_cache:
             try:
                 _gtfs_cache[p.stem] = GtfsDatabase(p)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Could not open GTFS feed %s: %s", p.stem, exc)
     return _gtfs_cache
 
 
@@ -1299,20 +1320,34 @@ def recommend_batch(
     results: list[BatchItemResult] = []
     failed = 0
 
-    for i, req in enumerate(body.requests):
-        try:
-            result = _process_one(req, gtfs_dbs)
-            results.append(BatchItemResult(index=i, success=True, result=result))
-        except HTTPException as exc:
-            failed += 1
-            results.append(BatchItemResult(index=i, success=False, error=exc.detail))
-            if body.fail_fast:
+    if body.fail_fast:
+        # Sequential so we can abort cleanly on the first error
+        for i, req in enumerate(body.requests):
+            try:
+                results.append(BatchItemResult(index=i, success=True, result=_process_one(req, gtfs_dbs)))
+            except HTTPException as exc:
+                failed += 1
+                results.append(BatchItemResult(index=i, success=False, error=exc.detail))
                 break
-        except Exception as exc:
-            failed += 1
-            results.append(BatchItemResult(index=i, success=False, error=str(exc)))
-            if body.fail_fast:
+            except Exception as exc:
+                failed += 1
+                results.append(BatchItemResult(index=i, success=False, error=str(exc)))
                 break
+    else:
+        # Parallel — cap workers at 8 to avoid hammering Nominatim / Overpass
+        def _run(args: tuple[int, RecommendRequest]) -> BatchItemResult:
+            i, req = args
+            try:
+                return BatchItemResult(index=i, success=True, result=_process_one(req, gtfs_dbs))
+            except HTTPException as exc:
+                return BatchItemResult(index=i, success=False, error=exc.detail)
+            except Exception as exc:
+                return BatchItemResult(index=i, success=False, error=str(exc))
+
+        max_workers = min(len(body.requests), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            results = list(pool.map(_run, enumerate(body.requests)))
+        failed = sum(1 for r in results if not r.success)
 
     return BatchResponse(
         results=results,

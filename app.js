@@ -13,6 +13,11 @@ const SUNSIDE_FILES = [
   "sunside/sun_analysis/analyzer.py",
   "sunside/sun_analysis/calculator.py",
   "sunside/sun_analysis/sampler.py",
+  "sunside/scenic/__init__.py",
+  "sunside/scenic/models.py",
+  "sunside/scenic/poi_query.py",
+  "sunside/scenic/poi_scorer.py",
+  "sunside/scenic/analyzer.py",
 ];
 
 // ---- DOM ----
@@ -37,7 +42,7 @@ const els = {
   depDate: $("dep-date"), depTime: $("dep-time"),
   durationField: $("duration-field"), duration: $("duration"), durationValue: $("duration-value"),
   interval: $("interval"), weather: $("weather"), intensity: $("intensity"),
-  terrain: $("terrain"), converged: $("converged"),
+  terrain: $("terrain"), converged: $("converged"), scenic: $("scenic"),
   submit: $("submit"), status: $("status"),
   result: $("result"), resultSide: $("result-side"), resultPct: $("result-pct"),
   resultMeta: $("result-meta"), recommendation: $("recommendation"),
@@ -60,7 +65,13 @@ let routeLayer = null;
 let segmentLayer = null;
 let previewMap = null;
 let previewLayer = null;
+let scenicLayer = null;
+let scenicSearchLayer = null;
+let _scenicSearchTimer = null;
 let _originCoords = null;
+let _lastResult = null;
+let _lastPref = null;
+let _lastScenic = null;
 const TERRAIN_COORD_LIMIT = 8000;
 const placeCache = new Map();
 const optionState = { origin: [], destination: [] };
@@ -888,6 +899,43 @@ async function fetchOverpassRail(start, end, bufferDeg = 0.25) {
   throw new Error(`Overpass nicht erreichbar: ${lastErr?.message || lastErr}`);
 }
 
+async function fetchScenicPOIs(queryParams) {
+  const allElements = [];
+  const seenIds = new Set();
+  for (let i = 0; i < queryParams.length; i++) {
+    const qp = queryParams[i];
+    const query = qp.query;
+    setStatus(`Lade Sehenswürdigkeiten… (${i + 1}/${queryParams.length})`, "info");
+    let fetched = false;
+    for (const url of OVERPASS_URLS) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "data=" + encodeURIComponent(query),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (!r.ok) continue;
+        const data = await r.json();
+        for (const el of (data.elements || [])) {
+          if (!seenIds.has(el.id)) {
+            seenIds.add(el.id);
+            allElements.push(el);
+          }
+        }
+        fetched = true;
+        break;
+      } catch { /* try next mirror */ }
+    }
+    if (!fetched) console.warn(`Scenic POI chunk ${i + 1} failed`);
+    if (i < queryParams.length - 1) await new Promise(r => setTimeout(r, 1200));
+  }
+  return allElements;
+}
+
 async function fetchWeatherSamples(samples) {
   // samples: [{lat, lon, hour_iso}] — group by (lat, lon) so we minimize calls.
   const grouped = new Map();
@@ -1276,9 +1324,50 @@ result
     `);
     const result = resultPy.toJs({ dict_converter: Object.fromEntries });
 
-    renderResult(result, els.form.pref.value);
+    // Render sun result immediately ----------------------------------------
+    result.scenic = null;
+    _lastResult = result;
+    _lastPref = els.form.pref.value;
+    _lastScenic = null;
+    renderResult(result, _lastPref);
     if (result.terrain_warning) setStatus(result.terrain_warning, "warn");
     else setStatus("", null);
+
+    // Scenic POI analysis — runs async after sun result is shown ----------
+    if (els.scenic && els.scenic.checked) {
+      renderScenicLoading(true);
+      (async () => {
+        try {
+          const isFlight = els.provider.value === "straight";
+          pyodide.globals.set("__is_flight", isFlight ? 1 : 0);
+          const queryParamsPy = await pyodide.runPythonAsync(`
+browser_api.scenic_query_params(points, is_flight=bool(__is_flight))
+          `);
+          const queryParams = queryParamsPy.toJs({ dict_converter: Object.fromEntries });
+          if (queryParams.length) {
+            const poiElements = await fetchScenicPOIs(queryParams);
+            setStatus("Analysiere Aussichtsseite…", "info");
+            pyodide.globals.set("__scenic_pois", poiElements);
+            const scenicPy = await pyodide.runPythonAsync(`
+browser_api.run_scenic_analysis(points, __scenic_pois.to_py(), is_flight=bool(__is_flight))
+            `);
+            const scenicResult = scenicPy.toJs({ dict_converter: Object.fromEntries });
+            _lastScenic = scenicResult;
+            renderScenic(scenicResult);
+          } else {
+            _lastScenic = null;
+            renderScenic(null);
+          }
+        } catch (err) {
+          console.warn("scenic analysis failed:", err);
+          _lastScenic = null;
+          renderScenic(null);
+        } finally {
+          renderScenicLoading(false);
+          setStatus("", null);
+        }
+      })();
+    }
   } catch (err) {
     console.error("analysis failed:", err);
     setStatus(`Fehler: ${describeError(err)}`, "error");
@@ -1292,6 +1381,7 @@ result
 function renderResult(result, pref) {
   els.emptyState.classList.add("hidden");
   els.result.classList.remove("hidden");
+  document.querySelector(".ss-workspace")?.classList.add("has-result");
   const segmentCount = result.segments?.length || 0;
   const trace = result.convergence_trace || [];
 
@@ -1330,6 +1420,11 @@ function renderResult(result, pref) {
   els.metricTerrain.textContent = result.terrain_adjusted ? formatPct(result.terrain_pct || 0) : "Aus";
 
   renderMap(result);
+  if (result.scenic !== null) renderScenic(result.scenic);
+  else if (!els.scenic?.checked) {
+    const sw = document.getElementById("scenic-result");
+    if (sw) sw.classList.add("hidden");
+  }
   renderTrace(trace);
   renderTable(result.segments);
   renderSegmentBar(result.segments);
@@ -1343,6 +1438,596 @@ function renderResult(result, pref) {
 
   els.result.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
 }
+
+const SCENIC_CAT_LABELS = {
+  peak: "Gipfel", glacier: "Gletscher", water: "See", coastline: "Küste",
+  river: "Fluss", castle: "Burg", ruins: "Ruine", heritage: "UNESCO",
+  city: "Stadt", viewpoint: "Aussichtspunkt",
+};
+const SCENIC_CAT_COLORS = {
+  peak: "#6d5c4e", glacier: "#7eb8d8", water: "#2563eb", coastline: "#2563eb",
+  river: "#2563eb", castle: "#9a6324", ruins: "#9a6324", heritage: "#b45309",
+  city: "#475569", viewpoint: "#10845f",
+};
+const SCENIC_CAT_ABBR = {
+  peak: "G", glacier: "GL", water: "S", coastline: "K",
+  river: "F", castle: "B", ruins: "R", heritage: "U",
+  city: "ST", viewpoint: "A",
+};
+
+function renderScenicLoading(show) {
+  const wrap = document.getElementById("scenic-result");
+  if (!wrap) return;
+  if (show) {
+    wrap.classList.remove("hidden");
+    document.getElementById("scenic-side").textContent = "…";
+    document.getElementById("scenic-pct").textContent = "";
+    document.getElementById("scenic-pois").textContent = "Sehenswürdigkeiten werden geladen";
+    document.getElementById("scenic-poi-count").textContent = "";
+    const bar = document.getElementById("scenic-bar");
+    if (bar) { bar.textContent = ""; bar.style.opacity = "0.4"; }
+    const listEl = document.getElementById("scenic-poi-list");
+    if (listEl) listEl.textContent = "";
+    const details = wrap.querySelector("details");
+    if (details) details.open = false;
+    // Pulse animation on the card
+    const card = wrap.querySelector("div");
+    if (card) card.style.opacity = "0.6";
+  } else {
+    const card = wrap.querySelector("div");
+    if (card) card.style.opacity = "";
+    const bar = document.getElementById("scenic-bar");
+    if (bar) bar.style.opacity = "";
+  }
+}
+
+function renderScenic(scenic) {
+  const wrap = document.getElementById("scenic-result");
+  if (!wrap) return;
+  wrap.classList.remove("hidden");
+
+  if (scenicLayer) { scenicLayer.remove(); scenicLayer = null; }
+
+  if (!scenic || scenic.poi_count === 0) {
+    document.getElementById("scenic-side").textContent = "—";
+    document.getElementById("scenic-pct").textContent = "";
+    document.getElementById("scenic-pois").textContent = "Keine Sehenswürdigkeiten auf der Strecke gefunden. Nutze die Suche unten.";
+    document.getElementById("scenic-poi-count").textContent = "0 POIs";
+    const bar = document.getElementById("scenic-bar");
+    if (bar) bar.textContent = "";
+    const listEl = document.getElementById("scenic-poi-list");
+    if (listEl) listEl.textContent = "";
+    return;
+  }
+
+  document.getElementById("scenic-side").textContent = scenic.scenic_side;
+  document.getElementById("scenic-pct").textContent = `≈ ${scenic.scenic_pct.toFixed(0)} %`;
+  document.getElementById("scenic-poi-count").textContent = `${scenic.poi_count} POIs`;
+
+  const topNames = (scenic.top_pois || [])
+    .filter(p => p.name)
+    .slice(0, 5)
+    .map(p => `${p.name} (${SCENIC_CAT_LABELS[p.category] || p.category})`)
+    .join(", ");
+  document.getElementById("scenic-pois").textContent = topNames || "Diverse Sehenswürdigkeiten";
+
+  // Scenic segment bar
+  const bar = document.getElementById("scenic-bar");
+  if (bar) {
+    while (bar.firstChild) bar.removeChild(bar.firstChild);
+    const segs = scenic.segments || [];
+    if (segs.length) {
+      const maxScore = Math.max(...segs.map(s => s.left_score + s.right_score), 0.01);
+      for (const s of segs) {
+        const total = s.left_score + s.right_score;
+        const cell = document.createElement("div");
+        cell.style.flex = "1";
+        const intensity = Math.min(1, total / maxScore);
+        if (s.left_score > s.right_score) {
+          cell.style.background = `rgba(37, 99, 235, ${0.2 + 0.8 * intensity})`;
+        } else if (s.right_score > s.left_score) {
+          cell.style.background = `rgba(232, 93, 4, ${0.2 + 0.8 * intensity})`;
+        } else {
+          cell.style.background = "var(--bg-alt)";
+        }
+        bar.appendChild(cell);
+      }
+    }
+  }
+
+  // POI list
+  const listEl = document.getElementById("scenic-poi-list");
+  if (listEl) {
+    listEl.textContent = "";
+    const pois = scenic.top_pois || [];
+    if (pois.length) {
+      const scrollWrap = document.createElement("div");
+      scrollWrap.style.cssText = "overflow-x:auto;-webkit-overflow-scrolling:touch";
+      const table = document.createElement("table");
+      table.style.cssText = "min-width:420px;width:100%;font-size:12px;border-collapse:collapse";
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      headRow.style.cssText = "text-align:left;color:var(--ink-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.05em";
+      for (const h of ["", "Name", "Kategorie", "Seite", "Entfernung"]) {
+        const th = document.createElement("th");
+        th.style.padding = "4px 6px";
+        if (h === "Entfernung") th.style.textAlign = "right";
+        th.textContent = h;
+        headRow.appendChild(th);
+      }
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      for (const poi of pois) {
+        const catLabel = SCENIC_CAT_LABELS[poi.category] || poi.category;
+        const catColor = SCENIC_CAT_COLORS[poi.category] || "#64748b";
+        const catAbbr = SCENIC_CAT_ABBR[poi.category] || "?";
+        const sideColor = poi.side === "links" ? "#2563eb" : "#e85d04";
+        const distKm = poi.distance_m >= 1000
+          ? `${(poi.distance_m / 1000).toFixed(1)} km`
+          : `${Math.round(poi.distance_m)} m`;
+        const tr = document.createElement("tr");
+        tr.style.borderTop = "1px solid var(--border)";
+        const tdIcon = document.createElement("td");
+        tdIcon.style.cssText = "padding:6px;width:28px";
+        const badge = document.createElement("span");
+        badge.style.cssText = `display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:0.02em;color:#fff;background:${catColor}`;
+        badge.textContent = catAbbr;
+        tdIcon.appendChild(badge);
+        const tdName = document.createElement("td");
+        tdName.style.cssText = "padding:6px;font-weight:500";
+        tdName.textContent = poi.name || "—";
+        const tdCat = document.createElement("td");
+        tdCat.style.cssText = "padding:6px;color:var(--ink-dim);white-space:nowrap";
+        tdCat.textContent = catLabel;
+        const tdSide = document.createElement("td");
+        tdSide.style.cssText = "padding:6px;white-space:nowrap";
+        const sideSpan = document.createElement("span");
+        sideSpan.style.cssText = `color:${sideColor};font-weight:600`;
+        sideSpan.textContent = poi.side;
+        tdSide.appendChild(sideSpan);
+        const tdDist = document.createElement("td");
+        tdDist.style.cssText = "padding:6px;text-align:right;color:var(--ink-dim);white-space:nowrap";
+        tdDist.textContent = distKm;
+        tr.append(tdIcon, tdName, tdCat, tdSide, tdDist);
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      scrollWrap.appendChild(table);
+      listEl.appendChild(scrollWrap);
+    } else {
+      listEl.textContent = "Keine benannten Sehenswürdigkeiten gefunden.";
+    }
+  }
+
+  // POI markers on map
+  if (scenicLayer) { scenicLayer.remove(); scenicLayer = null; }
+  if (map && scenic.top_pois) {
+    const markers = [];
+    for (const poi of scenic.top_pois) {
+      const color = poi.side === "links" ? "#2563eb" : "#e85d04";
+      const catLabel = SCENIC_CAT_LABELS[poi.category] || poi.category;
+      const label = poi.name || catLabel;
+      const marker = L.circleMarker([poi.lat, poi.lon], {
+        radius: 5, color, fillColor: color, fillOpacity: 0.8, weight: 1.5,
+      }).bindTooltip(`${label} · ${catLabel} · ${poi.side}`, { direction: "top" });
+      markers.push(marker);
+    }
+    if (markers.length) scenicLayer = L.layerGroup(markers).addTo(map);
+  }
+}
+
+// ---- Scenic POI search ----
+
+function clearScenicSearch() {
+  const input = document.getElementById("scenic-search");
+  const clearBtn = document.getElementById("scenic-search-clear");
+  const resultEl = document.getElementById("scenic-search-result");
+  const sugBox = document.getElementById("scenic-search-suggestions");
+  if (input) input.value = "";
+  if (clearBtn) clearBtn.classList.add("hidden");
+  if (resultEl) { resultEl.textContent = ""; resultEl.classList.add("hidden"); }
+  if (sugBox) sugBox.classList.add("hidden");
+  if (scenicSearchLayer) { scenicSearchLayer.remove(); scenicSearchLayer = null; }
+}
+
+function initScenicSearch() {
+  const input = document.getElementById("scenic-search");
+  const sugBox = document.getElementById("scenic-search-suggestions");
+  const clearBtn = document.getElementById("scenic-search-clear");
+  if (!input || !sugBox) return;
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", clearScenicSearch);
+  }
+
+  input.addEventListener("input", () => {
+    clearTimeout(_scenicSearchTimer);
+    const q = input.value.trim();
+    if (clearBtn) clearBtn.classList.toggle("hidden", q.length === 0);
+    if (q.length < 2) { sugBox.classList.add("hidden"); return; }
+    _scenicSearchTimer = setTimeout(async () => {
+      try {
+        const results = await searchPlaces(q, { stationOnly: false, limit: 5 });
+        sugBox.textContent = "";
+        if (!results.length) { sugBox.classList.add("hidden"); return; }
+        for (const r of results) {
+          const item = document.createElement("div");
+          item.style.cssText = "padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)";
+          item.textContent = r.display_name || r.name || "?";
+          item.addEventListener("mouseenter", () => { item.style.background = "var(--bg-alt)"; });
+          item.addEventListener("mouseleave", () => { item.style.background = ""; });
+          item.addEventListener("click", () => {
+            input.value = r.display_name || r.name;
+            sugBox.classList.add("hidden");
+            if (clearBtn) clearBtn.classList.remove("hidden");
+            runScenicSearch(parseFloat(r.lat), parseFloat(r.lon), r.display_name || r.name);
+          });
+          sugBox.appendChild(item);
+        }
+        sugBox.classList.remove("hidden");
+      } catch { sugBox.classList.add("hidden"); }
+    }, 350);
+  });
+
+  input.addEventListener("blur", () => {
+    setTimeout(() => sugBox.classList.add("hidden"), 200);
+  });
+}
+
+async function runScenicSearch(lat, lon, name) {
+  if (!pyodide) return;
+  const resultEl = document.getElementById("scenic-search-result");
+  if (!resultEl) return;
+
+  try {
+    pyodide.globals.set("__poi_lat", lat);
+    pyodide.globals.set("__poi_lon", lon);
+    const resPy = await pyodide.runPythonAsync(`
+browser_api.locate_poi_on_route(points, __poi_lat, __poi_lon)
+    `);
+    const res = resPy.toJs({ dict_converter: Object.fromEntries });
+
+    if (!res.found) {
+      resultEl.textContent = "Keine Route geladen.";
+      resultEl.classList.remove("hidden");
+      return;
+    }
+
+    const sideColor = res.side === "links" ? "#2563eb" : "#e85d04";
+    const distKm = res.distance_m >= 1000
+      ? `${(res.distance_m / 1000).toFixed(1)} km`
+      : `${Math.round(res.distance_m)} m`;
+    const fmtTime = (iso) => new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    const closest = fmtTime(res.time);
+    const visFrom = fmtTime(res.vis_start_time);
+    const visTo = fmtTime(res.vis_end_time);
+    const visRange = visFrom === visTo ? closest : `${visFrom} – ${visTo}`;
+
+    resultEl.textContent = "";
+    resultEl.classList.remove("hidden");
+
+    const card = document.createElement("div");
+    card.style.cssText = "background:var(--bg-alt);border-radius:8px;padding:12px";
+
+    const title = document.createElement("div");
+    title.style.cssText = "font-weight:600;font-size:14px;margin-bottom:8px";
+    title.textContent = name;
+    card.appendChild(title);
+
+    const grid = document.createElement("div");
+    grid.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px";
+
+    const items = [
+      ["Seite", res.side, `color:${sideColor};font-weight:700`],
+      ["Entfernung", distKm, ""],
+      ["Sichtbar", visRange, ""],
+      ["Nächster Punkt", closest, ""],
+    ];
+    for (const [label, value, style] of items) {
+      const lbl = document.createElement("span");
+      lbl.style.color = "var(--ink-dim)";
+      lbl.textContent = label;
+      const val = document.createElement("span");
+      val.style.cssText = style;
+      val.textContent = value;
+      grid.append(lbl, val);
+    }
+    card.appendChild(grid);
+    resultEl.appendChild(card);
+
+    // Highlight on map
+    if (scenicSearchLayer) { scenicSearchLayer.remove(); scenicSearchLayer = null; }
+    if (map) {
+      const layers = [];
+      // POI marker
+      layers.push(L.circleMarker([lat, lon], {
+        radius: 7, color: "#b42318", fillColor: "#b42318", fillOpacity: 0.9, weight: 2,
+      }).bindTooltip(name, { permanent: true, direction: "top", offset: [0, -10] }));
+      // Visibility segment highlight
+      if (res.vis_start_lat != null) {
+        layers.push(L.polyline(
+          [[res.vis_start_lat, res.vis_start_lon], [res.lat, res.lon], [res.vis_end_lat, res.vis_end_lon]],
+          { color: "#b42318", weight: 6, opacity: 0.5, dashArray: "8 6" }
+        ));
+      }
+      // Line from route to POI
+      layers.push(L.polyline(
+        [[res.lat, res.lon], [lat, lon]],
+        { color: "#94a3b8", weight: 1.5, opacity: 0.6, dashArray: "4 4" }
+      ));
+      scenicSearchLayer = L.layerGroup(layers).addTo(map);
+      map.fitBounds(L.latLngBounds([[res.lat, res.lon], [lat, lon]]).pad(0.3));
+    }
+  } catch (err) {
+    console.warn("scenic search failed:", err);
+    resultEl.textContent = "Suche fehlgeschlagen.";
+    resultEl.classList.remove("hidden");
+  }
+}
+
+// Initialize scenic search when DOM is ready
+initScenicSearch();
+
+// ---- Saved trips ----
+
+const SAVED_TRIPS_KEY = "sunside_saved_trips";
+
+function getSavedTrips() {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_TRIPS_KEY) || "[]");
+  } catch { return []; }
+}
+
+function saveTripToStorage(trip) {
+  const trips = getSavedTrips();
+  trips.unshift(trip);
+  if (trips.length > 20) trips.length = 20;
+  try {
+    localStorage.setItem(SAVED_TRIPS_KEY, JSON.stringify(trips));
+  } catch (e) {
+    // localStorage full — remove oldest trips until it fits
+    while (trips.length > 1) {
+      trips.pop();
+      try { localStorage.setItem(SAVED_TRIPS_KEY, JSON.stringify(trips)); return; } catch {}
+    }
+    console.warn("localStorage full, could not save trip");
+  }
+}
+
+function deleteSavedTrip(id) {
+  const trips = getSavedTrips().filter(t => t.id !== id);
+  localStorage.setItem(SAVED_TRIPS_KEY, JSON.stringify(trips));
+  renderSavedTrips();
+}
+
+function saveCurrentTrip() {
+  if (!_lastResult) return;
+
+  const route = document.getElementById("boarding-route")?.textContent || "";
+  const mode = document.getElementById("boarding-mode")?.textContent || "";
+  const time = document.getElementById("boarding-time")?.textContent || "";
+  const pref = _lastPref || "Schatten";
+
+  if (!route || route === "— → —") return;
+
+  // Downsample polyline for storage (keep max ~500 points for a smooth map line)
+  const rawPoly = _lastResult.polyline || [];
+  const polyStep = rawPoly.length > 500 ? Math.ceil(rawPoly.length / 500) : 1;
+  const thinPolyline = polyStep === 1 ? rawPoly : rawPoly.filter((_, i) => i % polyStep === 0 || i === rawPoly.length - 1);
+
+  // Thin out segments for storage — keep essential fields only
+  const thinSegments = (_lastResult.segments || []).map(s => ({
+    lat: s.lat, lon: s.lon, sun_side: s.sun_side,
+    sun_elevation: s.sun_elevation, bearing: s.bearing,
+    sun_azimuth: s.sun_azimuth,
+    timestamp: s.time || s.timestamp,  // needed for scenic search on reload
+    ...(s.cloud_cover != null ? { cloud_cover: s.cloud_cover } : {}),
+    ...(s.terrain_shade != null ? { terrain_shade: s.terrain_shade } : {}),
+    ...(s.effective_weight != null ? { effective_weight: s.effective_weight } : {}),
+  }));
+
+  // Thin scenic — keep top_pois and segment scores
+  let thinScenic = null;
+  if (_lastScenic && _lastScenic.poi_count > 0) {
+    thinScenic = {
+      scenic_side: _lastScenic.scenic_side,
+      scenic_pct: _lastScenic.scenic_pct,
+      other_side: _lastScenic.other_side,
+      other_pct: _lastScenic.other_pct,
+      poi_count: _lastScenic.poi_count,
+      top_pois: (_lastScenic.top_pois || []).map(p => ({
+        lat: p.lat, lon: p.lon, name: p.name, category: p.category,
+        side: p.side, distance_m: p.distance_m, weight: p.weight,
+      })),
+      segments: (_lastScenic.segments || []).map(s => ({
+        left_score: s.left_score, right_score: s.right_score,
+      })),
+    };
+  }
+
+  const trip = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    route, mode, time, pref,
+    savedAt: new Date().toISOString(),
+    origin: document.getElementById("origin")?.value || "",
+    destination: document.getElementById("destination")?.value || "",
+    provider: document.getElementById("provider")?.value || "",
+    // Full result data for re-rendering
+    result: {
+      is_night: _lastResult.is_night || false,
+      shade_side: _lastResult.shade_side,
+      shade_pct: _lastResult.shade_pct,
+      sun_side: _lastResult.sun_side,
+      sun_pct: _lastResult.sun_pct,
+      auto_interval_m: _lastResult.auto_interval_m,
+      weather_adjusted: _lastResult.weather_adjusted || false,
+      intensity_adjusted: _lastResult.intensity_adjusted || false,
+      mean_cloud_cover_pct: _lastResult.mean_cloud_cover_pct,
+      mean_sun_elevation: _lastResult.mean_sun_elevation,
+      low_direct_sun: _lastResult.low_direct_sun || false,
+      terrain_adjusted: _lastResult.terrain_adjusted || false,
+      terrain_pct: _lastResult.terrain_pct || 0,
+      tunnel_pct: _lastResult.tunnel_pct || 0,
+      terrain_warning: _lastResult.terrain_warning || null,
+      polyline: thinPolyline,
+      segments: thinSegments,
+      convergence_trace: [],  // don't store trace
+      scenic: null,
+    },
+    scenic: thinScenic,
+  };
+
+  saveTripToStorage(trip);
+  renderSavedTrips();
+
+  // Visual feedback on save button
+  const btn = document.getElementById("save-trip-btn");
+  if (btn) {
+    btn.style.color = "var(--amber, #f2b705)";
+    btn.title = "Gespeichert!";
+    setTimeout(() => { btn.style.color = ""; btn.title = "Reise speichern"; }, 2000);
+  }
+}
+
+function renderSavedTrips() {
+  const section = document.getElementById("saved-trips");
+  const list = document.getElementById("saved-trips-list");
+  if (!section || !list) return;
+
+  const trips = getSavedTrips();
+  if (!trips.length) {
+    section.classList.add("hidden");
+    return;
+  }
+  section.classList.remove("hidden");
+  list.textContent = "";
+
+  for (const trip of trips) {
+    const card = document.createElement("div");
+    card.style.cssText = "background:var(--paper);border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow);cursor:pointer;border:1px solid var(--border);display:flex;align-items:center;gap:12px";
+
+    const info = document.createElement("div");
+    info.style.cssText = "flex:1;min-width:0";
+
+    const routeLine = document.createElement("div");
+    routeLine.style.cssText = "font-weight:600;font-size:14px;margin-bottom:2px";
+    routeLine.textContent = trip.route;
+    info.appendChild(routeLine);
+
+    const meta = document.createElement("div");
+    meta.style.cssText = "font-size:12px;color:var(--ink-dim)";
+
+    // Extract side/pct from stored result object (new format) or fallback to old text fields
+    const r = trip.result;
+    let side, pct;
+    if (r) {
+      if (r.is_night) { side = "Nacht"; pct = "—"; }
+      else if (trip.pref === "Schatten") { side = r.shade_side; pct = `≈ ${r.shade_pct?.toFixed?.(0) ?? Math.round(r.shade_pct)} %`; }
+      else { side = r.sun_side; pct = `≈ ${r.sun_pct?.toFixed?.(0) ?? Math.round(r.sun_pct)} %`; }
+    } else {
+      side = trip.side || "—"; pct = trip.pct || "";
+    }
+    const sideColor = side === "links" ? "#2563eb" : side === "rechts" ? "#e85d04" : "#475569";
+
+    const prefSpan = document.createElement("span");
+    prefSpan.textContent = `${trip.pref}: `;
+    const sideSpan = document.createElement("span");
+    sideSpan.style.cssText = `color:${sideColor};font-weight:600`;
+    sideSpan.textContent = side;
+    const restSpan = document.createElement("span");
+    restSpan.textContent = ` ${pct} · ${trip.mode} · ${trip.time}`;
+    meta.append(prefSpan, sideSpan, restSpan);
+
+    if (trip.scenic && trip.scenic.scenic_side) {
+      const scenicSpan = document.createElement("div");
+      scenicSpan.style.cssText = "font-size:11px;color:var(--ink-dim);margin-top:2px";
+      scenicSpan.textContent = `Aussicht: ${trip.scenic.scenic_side} ≈ ${Math.round(trip.scenic.scenic_pct)} %`;
+      meta.appendChild(scenicSpan);
+    }
+    info.appendChild(meta);
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.setAttribute("aria-label", "Löschen");
+    delBtn.style.cssText = "background:none;border:none;cursor:pointer;color:var(--ink-dim);padding:4px;font-size:14px;line-height:1;flex-shrink:0";
+    delBtn.textContent = "×";
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSavedTrip(trip.id);
+    });
+
+    card.appendChild(info);
+    card.appendChild(delBtn);
+    card.addEventListener("click", () => loadSavedTrip(trip));
+    list.appendChild(card);
+  }
+}
+
+function loadSavedTrip(trip) {
+  // Fill form inputs
+  if (trip.origin) { const el = document.getElementById("origin"); if (el) el.value = trip.origin; }
+  if (trip.destination) { const el = document.getElementById("destination"); if (el) el.value = trip.destination; }
+
+  // Set boarding info
+  document.getElementById("boarding-route").textContent = trip.route;
+  document.getElementById("boarding-mode").textContent = trip.mode;
+  document.getElementById("boarding-time").textContent = trip.time;
+
+  if (trip.result) {
+    // New format: re-render with full data
+    _lastResult = trip.result;
+    _lastPref = trip.pref || "Schatten";
+    _lastScenic = trip.scenic || null;
+    renderResult(trip.result, _lastPref);
+    if (trip.scenic) renderScenic(trip.scenic);
+    else {
+      const sw = document.getElementById("scenic-result");
+      if (sw) sw.classList.add("hidden");
+    }
+
+    // Inject route points into Pyodide so scenic search works without re-analysing
+    if (pyodide && trip.result.segments?.length) {
+      const segs = trip.result.segments;
+      pyodide.globals.set("__saved_segs", pyodide.toPy(segs));
+      pyodide.runPythonAsync(`
+from sunside.models import RoutePoint
+from datetime import datetime, timezone
+_segs = __saved_segs.to_py()
+points = [
+    RoutePoint(
+        lat=float(s["lat"]),
+        lon=float(s["lon"]),
+        timestamp=datetime.fromisoformat(s["timestamp"]) if s.get("timestamp")
+                  else datetime.now(timezone.utc),
+    )
+    for s in _segs
+]
+      `.trim()).catch(err => console.warn("Could not restore points in Pyodide:", err));
+    }
+  } else {
+    // Legacy format (old text-only saves): show what we have
+    const resultSection = document.getElementById("result");
+    if (resultSection) resultSection.classList.remove("hidden");
+    document.getElementById("empty-state")?.classList.add("hidden");
+    const sideEl = document.getElementById("result-side");
+    const pctEl = document.getElementById("result-pct");
+    const metaEl = document.getElementById("result-meta");
+    if (sideEl) sideEl.textContent = trip.side || "—";
+    if (pctEl) pctEl.textContent = trip.pct || "";
+    if (metaEl) metaEl.textContent = trip.meta || "";
+  }
+
+  // Scroll to result
+  const resultSection = document.getElementById("result");
+  resultSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Wire up save button
+document.getElementById("save-trip-btn")?.addEventListener("click", saveCurrentTrip);
+
+// Render saved trips on load
+renderSavedTrips();
 
 function renderSegmentBar(segments) {
   const container = document.getElementById("seg-bar");

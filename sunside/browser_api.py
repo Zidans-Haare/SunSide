@@ -18,6 +18,8 @@ import gpxpy
 
 from sunside.flight import make_great_circle_route as _make_great_circle_route
 from sunside.models import RoutePoint
+from sunside.scenic.analyzer import analyze_scenic, TRAIN_BUFFER_M as _SCENIC_TRAIN_BUF, FLIGHT_BUFFER_M as _SCENIC_FLIGHT_BUF
+from sunside.scenic.poi_query import corridor_bboxes, build_overpass_query, parse_overpass_response
 from sunside.sun_analysis.analyzer import analyze, analyze_converged
 from sunside.sun_analysis.calculator import analyze_segment, haversine_m
 from sunside.sun_analysis.sampler import auto_interval_m, resample
@@ -573,3 +575,122 @@ def hour_samples_for_route(points: list[RoutePoint]) -> list[dict]:
             "hour_iso": ts_utc.isoformat().replace("+00:00", ""),
         })
     return samples
+
+
+# -------- scenic POI analysis --------
+
+def scenic_query_params(
+    points: list[RoutePoint],
+    is_flight: bool = False,
+) -> list[dict]:
+    """Return bounding boxes + Overpass queries for JS to fetch scenic POIs."""
+    buffer_km = (_SCENIC_FLIGHT_BUF if is_flight else _SCENIC_TRAIN_BUF) / 1000
+    bboxes = corridor_bboxes(points, buffer_km=buffer_km, chunk_km=50.0)
+    return [
+        {
+            "bbox": list(bb),
+            "query": build_overpass_query(bb, is_flight=is_flight),
+        }
+        for bb in bboxes
+    ]
+
+
+def run_scenic_analysis(
+    points: list[RoutePoint],
+    poi_data: list[dict],
+    is_flight: bool = False,
+) -> dict:
+    """Score POIs and return scenic recommendation as a dict for JS."""
+    raw_pois = parse_overpass_response({"elements": poi_data})
+    rec = analyze_scenic(points, raw_pois, is_flight=is_flight)
+
+    return {
+        "scenic_side": rec.scenic_side,
+        "other_side": rec.other_side,
+        "scenic_pct": rec.scenic_pct,
+        "other_pct": rec.other_pct,
+        "poi_count": rec.poi_count,
+        "is_flight": rec.is_flight,
+        "top_pois": [
+            {
+                "name": p.name,
+                "category": p.category,
+                "lat": p.lat,
+                "lon": p.lon,
+                "side": p.side,
+                "weight": p.weight,
+                "distance_m": p.distance_m,
+            }
+            for p in rec.top_pois
+        ],
+        "segments": [
+            {
+                "segment_index": s.segment_index,
+                "left_score": round(s.left_score, 4),
+                "right_score": round(s.right_score, 4),
+                "poi_count": len(s.pois),
+            }
+            for s in rec.segments
+        ],
+    }
+
+
+def locate_poi_on_route(
+    points: list[RoutePoint],
+    poi_lat: float,
+    poi_lon: float,
+) -> dict:
+    """Find where a POI is relative to the route: nearest segment, side, time, distance."""
+    from sunside.sun_analysis.calculator import bearing as calc_bearing
+
+    if len(points) < 2:
+        return {"found": False}
+
+    poi_point = RoutePoint(lat=poi_lat, lon=poi_lon, timestamp=points[0].timestamp)
+
+    best_idx = 0
+    best_dist = haversine_m(points[0], poi_point)
+    for i in range(1, len(points)):
+        d = haversine_m(points[i], poi_point)
+        if d < best_dist:
+            best_dist = d
+            best_idx = i
+
+    seg_idx = min(best_idx, len(points) - 2)
+    seg_bearing = calc_bearing(points[seg_idx], points[seg_idx + 1])
+    brng_to_poi = calc_bearing(points[best_idx], poi_point)
+    delta = (brng_to_poi - seg_bearing) % 360
+    side = "rechts" if delta < 180 else "links"
+
+    # Visibility window: segments where distance < 2x closest distance (or 10km max)
+    vis_threshold = min(best_dist * 2, 10_000)
+    vis_start = best_idx
+    vis_end = best_idx
+    for i in range(best_idx - 1, -1, -1):
+        if haversine_m(points[i], poi_point) <= vis_threshold:
+            vis_start = i
+        else:
+            break
+    for i in range(best_idx + 1, len(points)):
+        if haversine_m(points[i], poi_point) <= vis_threshold:
+            vis_end = i
+        else:
+            break
+
+    return {
+        "found": True,
+        "side": side,
+        "distance_m": round(best_dist, 1),
+        "segment_index": best_idx,
+        "lat": points[best_idx].lat,
+        "lon": points[best_idx].lon,
+        "time": _to_iso(points[best_idx].timestamp),
+        "vis_start_index": vis_start,
+        "vis_end_index": vis_end,
+        "vis_start_time": _to_iso(points[vis_start].timestamp),
+        "vis_end_time": _to_iso(points[vis_end].timestamp),
+        "vis_start_lat": points[vis_start].lat,
+        "vis_start_lon": points[vis_start].lon,
+        "vis_end_lat": points[vis_end].lat,
+        "vis_end_lon": points[vis_end].lon,
+    }

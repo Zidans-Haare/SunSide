@@ -573,7 +573,7 @@
     }
 
     /* Segment bar */
-    .ss-segbar-section { padding: 12px 16px 0; }
+    .ss-segbar-section { padding: 12px 16px 12px; }
     .ss-segbar-card {
       padding: 14px 16px;
       background: var(--paper);
@@ -734,6 +734,10 @@
       .ss-form-wrap {
         padding-bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px));
       }
+      /* When result is visible, no padding needed at bottom of form */
+      .has-result .ss-form-wrap {
+        padding-bottom: 0;
+      }
       #result {
         padding-bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px)) !important;
       }
@@ -742,7 +746,7 @@
       .ss-chips { -webkit-overflow-scrolling: touch; }
     }
     @media (max-width: 480px) {
-      .ss-form-wrap, .ss-hero-wrap, .ss-segbar-section, .insight-grid, .ss-details { padding-left: 12px; padding-right: 12px; }
+      .ss-form-wrap, .ss-hero-wrap, .ss-segbar-section, #scenic-result, #saved-trips, .insight-grid, .ss-details { padding-left: 12px; padding-right: 12px; }
 /* Even tighter: prevent any horizontal overflow */
       .ss-chips { padding-left: 12px; padding-right: 12px; }
     }
@@ -893,6 +897,14 @@
         <!-- Favorites chips -->
         <div class="ss-chips" id="ss-chips"></div>
 
+        <!-- Saved trips -->
+        <section id="saved-trips" class="hidden" style="padding:4px 0 8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span class="ss-cap" style="color:var(--ink-dim)">Gespeicherte Reisen</span>
+          </div>
+          <div id="saved-trips-list"></div>
+        </section>
+
         <!-- Advanced (collapsible) -->
         <details class="ss-advanced" id="ss-advanced">
           <summary>Erweiterte Einstellungen</summary>
@@ -974,6 +986,7 @@
                 <label class="switch"><input type="checkbox" id="intensity" checked><span><strong>Sonnenintensität</strong><small>Niedrige Sonne wird stärker gewichtet als Mittagssonne.</small></span></label>
                 <label class="switch"><input type="checkbox" id="terrain"><span><strong>Geländeschatten</strong><small>Berge blocken die Sonne. Genauer, aber lädt Höhendaten nach.</small></span></label>
                 <label class="switch"><input type="checkbox" id="converged" checked><span><strong>Konvergenzmodus</strong><small>Verfeinert das Intervall in mehreren Durchläufen — maximale Genauigkeit, lange Strecken brauchen 1–3 Minuten.</small></span></label>
+                <label class="switch"><input type="checkbox" id="scenic" checked><span><strong>Aussichtsseite</strong><small>Berge, Seen, Burgen, Städte — auf welcher Seite ist die bessere Aussicht?</small></span></label>
               </div>
             </div>
 
@@ -1007,6 +1020,9 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
           </button>
           <span class="ss-cap" style="color:var(--ink-dim)">SunSide · Ergebnis</span>
+          <button type="button" class="ss-icon-btn" id="save-trip-btn" aria-label="Reise speichern" title="Reise speichern">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          </button>
           <button type="button" class="ss-icon-btn" id="share-btn" aria-label="Teilen">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
           </button>
@@ -1084,6 +1100,43 @@
           </div>
         </div>
 
+        <!-- Scenic recommendation -->
+        <div id="scenic-result" class="hidden" style="padding:12px 16px 0">
+          <div style="background:var(--paper);border-radius:12px;padding:16px;border:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink-dim)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20L8.5 8 13 16l3.5-4L22 20z"/><circle cx="18" cy="6" r="2.5"/></svg>
+              <span class="ss-cap" style="color:var(--ink-dim)">Aussichtsseite</span>
+            </div>
+            <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+              <strong id="scenic-side" style="font-size:28px;text-transform:capitalize">—</strong>
+              <span id="scenic-pct" style="font-size:18px;color:var(--ink-dim)"></span>
+            </div>
+            <p id="scenic-pois" style="margin:0;font-size:13px;color:var(--ink-dim)"></p>
+            <div id="scenic-bar-wrap" style="margin-top:12px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span class="ss-cap" style="color:var(--ink-dim);font-size:10px">Sehenswürdigkeiten entlang der Route</span>
+                <span class="ss-cap" style="color:var(--ink-dim);font-size:10px" id="scenic-poi-count"></span>
+              </div>
+              <div id="scenic-bar" style="display:flex;height:10px;border-radius:4px;overflow:hidden;background:var(--bg-alt)"></div>
+            </div>
+            <details style="margin-top:12px">
+              <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--ink)">Attraktionen anzeigen</summary>
+              <div id="scenic-poi-list" style="margin-top:8px"></div>
+            </details>
+            <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+              <label style="font-size:13px;font-weight:600;color:var(--ink);display:block;margin-bottom:6px">Ort auf der Route finden</label>
+              <div style="position:relative">
+                <input type="text" id="scenic-search" placeholder="z.B. Neuschwanstein, Semmering, Omas Haus…" autocomplete="off"
+                  style="width:100%;padding:8px 36px 8px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);box-sizing:border-box">
+                <button type="button" id="scenic-search-clear" class="hidden" aria-label="Suche leeren"
+                  style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;color:var(--ink-dim);font-size:16px;line-height:1">&times;</button>
+                <div id="scenic-search-suggestions" class="hidden" style="position:absolute;left:0;right:0;top:100%;z-index:10;background:var(--paper);border:1px solid var(--border);border-radius:0 0 8px 8px;max-height:180px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.15)"></div>
+              </div>
+              <div id="scenic-search-result" class="hidden" style="margin-top:10px"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Metrics -->
         <div class="insight-grid">
           <article class="metric" title="Abstand zwischen Messpunkten."><span>Intervall</span><strong id="metric-interval">-</strong></article>
@@ -1151,7 +1204,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
-  <script type="module" src="app.js?v=12"></script>
+  <script type="module" src="app.js?v=22"></script>
 
   <script>
   // ── UI enhancements (runs after app.js via defer-order) ───────
@@ -1403,6 +1456,7 @@
   document.getElementById('result-back-btn').addEventListener('click', () => {
     document.getElementById('result').classList.add('hidden');
     document.getElementById('empty-state').classList.remove('hidden');
+    document.querySelector('.ss-workspace')?.classList.remove('has-result');
     // Restore preview map if it was visible before
     const preview = document.getElementById('preview-map');
     if (preview && !preview.dataset.wasHidden) preview.classList.remove('hidden');

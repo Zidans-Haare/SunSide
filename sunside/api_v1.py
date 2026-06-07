@@ -34,12 +34,16 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, model_validator
 from typing import Annotated
 
+import requests as http_requests
+
 from sunside.flight import make_great_circle_route
 from sunside.models import RoutePoint
 from sunside.route_providers.gtfs_db import GtfsDatabase
 from sunside.route_providers.nominatim import geocode_place, search_places
 from sunside.route_providers.osm import OsmRailProvider
 from sunside.route_providers.osrm import OsrmRoadProvider
+from sunside.scenic.analyzer import analyze_scenic
+from sunside.scenic.poi_query import corridor_bboxes, build_overpass_query, parse_overpass_response
 from sunside.sun_analysis.analyzer import analyze, analyze_converged
 from sunside.sun_analysis.calculator import haversine_m
 from sunside.terrain import TerrainConfig, TerrainProvider
@@ -203,6 +207,13 @@ class EnvironmentOptions(BaseModel):
     terrain_max_distance_m: float = Field(8_000.0, gt=0, description="How far along the sun ray to look for terrain")
     terrain_sample_step_m: float = Field(500.0, gt=0, description="Step size along the terrain ray")
     terrain_elevation_margin_deg: float = Field(0.5, ge=0, description="Extra degrees before marking as shaded")
+    scenic: bool = Field(
+        False,
+        description=(
+            "Analyse which side has better scenery (mountains, lakes, castles, cities) "
+            "using OSM Overpass POI data. Adds 15–60 s for long routes due to Overpass queries."
+        ),
+    )
 
 
 class ResponseOptions(BaseModel):
@@ -319,6 +330,25 @@ class AnalysisOut(BaseModel):
     intensity_adjusted: bool
 
 
+class ScenicPOIOut(BaseModel):
+    name: str | None = Field(None, description="POI name from OSM")
+    category: str = Field(..., description="POI category: peak, glacier, water, castle, heritage, city, viewpoint, …")
+    side: str = Field(..., description="'links' or 'rechts' — which side of the vehicle this POI is on")
+    distance_m: float = Field(..., description="Distance from route centre-line in metres")
+    weight: float = Field(..., description="Weighted scenic score (0–1)")
+    lat: float
+    lon: float
+
+
+class ScenicRecommendationOut(BaseModel):
+    scenic_side: str = Field(..., description="Side with better scenery: 'links' or 'rechts'")
+    other_side: str = Field(..., description="The other side")
+    scenic_pct: float = Field(..., description="Percentage of weighted scenic score on scenic_side")
+    other_pct: float = Field(..., description="Percentage of weighted scenic score on other_side")
+    poi_count: int = Field(..., description="Total number of POIs found within the corridor")
+    top_pois: list[ScenicPOIOut] = Field(..., description="Top-ranked POIs (up to 20)")
+
+
 class SegmentOut(BaseModel):
     lat: float
     lon: float
@@ -352,6 +382,10 @@ class RecommendResponse(BaseModel):
     journey: JourneyOut
     route: RouteOut
     analysis: AnalysisOut
+    scenic: ScenicRecommendationOut | None = Field(
+        None,
+        description="Scenic side analysis; null unless environment.scenic=true or no POIs found",
+    )
     segments: list[SegmentOut] | None = Field(None, description="Per-segment detail; null unless include_segments=true")
     polyline: list[list[float]] | None = Field(None, description="Route geometry [[lat,lon],...]; null unless include_polyline=true")
     convergence_trace: list[ConvergenceStep] | None = Field(None, description="Convergence iterations; null unless include_convergence_trace=true")
@@ -588,7 +622,29 @@ def _resolve_route(req: RecommendRequest, gtfs_dbs: dict[str, GtfsDatabase]) -> 
 # Analysis
 # ---------------------------------------------------------------------------
 
-def _run_analysis(req: RecommendRequest, points: list[RoutePoint]) -> tuple[Any, list[dict]]:
+def _fetch_overpass_pois(points: list[RoutePoint], is_flight: bool) -> list[dict]:
+    """Fetch POIs from OSM Overpass for the route corridor. Sequential to respect rate limits."""
+    bboxes = corridor_bboxes(points, buffer_km=80 if is_flight else 5, chunk_km=50)
+    all_pois: dict[int, dict] = {}
+    for bbox in bboxes:
+        query = build_overpass_query(bbox, is_flight=is_flight)
+        try:
+            resp = http_requests.post(
+                "https://overpass-api.de/api/interpreter",
+                data={"data": query},
+                timeout=15,
+                headers={"User-Agent": "SunSide/1.0 (+https://sun.olomek.com)"},
+            )
+            resp.raise_for_status()
+            pois = parse_overpass_response(resp.json())
+            for poi in pois:
+                all_pois[poi["osm_id"]] = poi
+        except Exception as exc:
+            logger.warning("Overpass query failed for bbox %s: %s", bbox, exc)
+    return list(all_pois.values())
+
+
+def _run_analysis(req: RecommendRequest, points: list[RoutePoint]) -> tuple[Any, list[dict], Any | None]:
     weather_provider = OpenMeteoWeatherProvider() if req.environment.weather else None
 
     terrain_provider = None
@@ -613,25 +669,36 @@ def _run_analysis(req: RecommendRequest, points: list[RoutePoint]) -> tuple[Any,
             use_intensity=opts.use_intensity,
             terrain_provider=terrain_provider,
         )
-        return rec, trace
+    else:
+        interval_m: int | None = None
+        if opts.interval_m is not None:
+            interval_m = opts.interval_m
+        elif opts.mode == AnalysisMode.fast:
+            interval_m = 5_000
+        elif opts.mode == AnalysisMode.precise:
+            interval_m = 200
+        # auto: interval_m = None → auto_interval_m() inside analyze()
 
-    interval_m: int | None = None
-    if opts.interval_m is not None:
-        interval_m = opts.interval_m
-    elif opts.mode == AnalysisMode.fast:
-        interval_m = 5_000
-    elif opts.mode == AnalysisMode.precise:
-        interval_m = 200
-    # auto: interval_m = None → auto_interval_m() inside analyze()
+        rec = analyze(
+            points,
+            interval_m=interval_m,
+            weather_provider=weather_provider,
+            use_intensity=opts.use_intensity,
+            terrain_provider=terrain_provider,
+        )
 
-    rec = analyze(
-        points,
-        interval_m=interval_m,
-        weather_provider=weather_provider,
-        use_intensity=opts.use_intensity,
-        terrain_provider=terrain_provider,
-    )
-    return rec, trace
+    # Scenic analysis (optional — makes Overpass HTTP calls)
+    scenic_rec = None
+    if req.environment.scenic:
+        is_flight = req.mode == TransportMode.flight
+        try:
+            raw_pois = _fetch_overpass_pois(points, is_flight=is_flight)
+            if raw_pois:
+                scenic_rec = analyze_scenic(points, raw_pois, is_flight=is_flight)
+        except Exception as exc:
+            logger.warning("Scenic analysis failed: %s", exc)
+
+    return rec, trace, scenic_rec
 
 
 # ---------------------------------------------------------------------------
@@ -699,6 +766,7 @@ def _build_response(
     provider_name: str,
     rec: Any,
     trace: list[dict],
+    scenic_rec: Any | None,
     t0: float,
 ) -> RecommendResponse:
     shade_side = SideLabel.left if rec.shade_side == "links" else SideLabel.right
@@ -785,6 +853,25 @@ def _build_response(
             terrain_adjusted=rec.terrain_adjusted,
             intensity_adjusted=rec.intensity_adjusted,
         ),
+        scenic=ScenicRecommendationOut(
+            scenic_side=scenic_rec.scenic_side,
+            other_side=scenic_rec.other_side,
+            scenic_pct=round(scenic_rec.scenic_pct, 1),
+            other_pct=round(scenic_rec.other_pct, 1),
+            poi_count=scenic_rec.poi_count,
+            top_pois=[
+                ScenicPOIOut(
+                    name=p.name,
+                    category=p.category,
+                    side=p.side,
+                    distance_m=round(p.distance_m, 0),
+                    weight=round(p.weight, 3),
+                    lat=round(p.lat, 5),
+                    lon=round(p.lon, 5),
+                )
+                for p in (scenic_rec.top_pois or [])
+            ],
+        ) if scenic_rec and scenic_rec.poi_count > 0 else None,
         segments=segments_out,
         polyline=polyline_out,
         convergence_trace=trace_out,
@@ -799,8 +886,8 @@ def _build_response(
 def _process_one(req: RecommendRequest, gtfs_dbs: dict[str, GtfsDatabase]) -> RecommendResponse:
     t0 = time.monotonic()
     points, provider_name = _resolve_route(req, gtfs_dbs)
-    rec, trace = _run_analysis(req, points)
-    return _build_response(req, points, provider_name, rec, trace, t0)
+    rec, trace, scenic_rec = _run_analysis(req, points)
+    return _build_response(req, points, provider_name, rec, trace, scenic_rec, t0)
 
 
 # ---------------------------------------------------------------------------
@@ -890,6 +977,7 @@ def capabilities() -> dict:
         "environment_options": {
             "weather": "Fetch cloud cover from Open-Meteo, weight sun exposure",
             "terrain": "Fetch elevation via Open-Meteo, detect terrain/mountain shading",
+            "scenic": "Fetch POIs from OSM Overpass (mountains, lakes, castles, cities) and compute scenic side — adds 15–60 s per request",
         },
         "gtfs_feeds_loaded": sorted(_open_gtfs_dbs().keys()),
         "batch_max_requests": _MAX_BATCH,

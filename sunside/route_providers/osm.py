@@ -61,10 +61,12 @@ class OsmRailProvider(RouteProvider):
         destination: str,
         departure: datetime,
         travel_hours: float | None = None,
+        waypoints: list[str] | None = None,
     ) -> list[RoutePoint]:
         start = geocode_place(origin)
         end = geocode_place(destination)
-        return self.get_route_between_coordinates(start, end, departure, travel_hours=travel_hours)
+        wp_coords = [geocode_place(w) for w in (waypoints or [])]
+        return self.get_route_between_coordinates(start, end, departure, travel_hours=travel_hours, waypoints=wp_coords)
 
     def get_route_between_coordinates(
         self,
@@ -72,24 +74,33 @@ class OsmRailProvider(RouteProvider):
         end: tuple[float, float],
         departure: datetime,
         travel_hours: float | None = None,
+        waypoints: list[tuple[float, float]] | None = None,
     ) -> list[RoutePoint]:
-        nodes, graph, tunnel_nodes = self._fetch_rail_graph(start, end)
+        wp = list(waypoints or [])
+        nodes, graph, tunnel_nodes = self._fetch_rail_graph(start, end, wp)
 
-        start_node = self._nearest_node(nodes, start)
-        end_node = self._nearest_node(nodes, end)
-        path = self._shortest_path(graph, start_node, end_node)
+        all_coords = [start, *wp, end]
+        full_path: list[int] = []
+        for i in range(len(all_coords) - 1):
+            seg_start = self._nearest_node(nodes, all_coords[i])
+            seg_end = self._nearest_node(nodes, all_coords[i + 1])
+            seg_path = self._shortest_path(graph, seg_start, seg_end)
+            if len(seg_path) < 2:
+                raise ValueError("Keine nutzbare OSM-Gleisroute gefunden")
+            if full_path:
+                full_path.extend(seg_path[1:])
+            else:
+                full_path = seg_path
 
-        if len(path) < 2:
-            raise ValueError("Keine nutzbare OSM-Gleisroute gefunden")
-
-        return self._path_to_route_points(nodes, path, departure, travel_hours, tunnel_nodes)
+        return self._path_to_route_points(nodes, full_path, departure, travel_hours, tunnel_nodes)
 
     def _fetch_rail_graph(
         self,
         start: tuple[float, float],
         end: tuple[float, float],
+        waypoints: list[tuple[float, float]] | None = None,
     ) -> tuple[dict[int, tuple[float, float]], dict[int, list[tuple[int, float]]], set[int]]:
-        south, west, north, east = self._bbox(start, end)
+        south, west, north, east = self._bbox(start, end, *(waypoints or []))
         bbox_area = (north - south) * (east - west)
         if bbox_area > self.max_bbox_area_deg2:
             raise ValueError(
@@ -171,14 +182,16 @@ class OsmRailProvider(RouteProvider):
 
     def _bbox(
         self,
-        start: tuple[float, float],
-        end: tuple[float, float],
+        *points: tuple[float, float],
     ) -> tuple[float, float, float, float]:
-        south = min(start[0], end[0]) - self.buffer_deg
-        north = max(start[0], end[0]) + self.buffer_deg
-        west = min(start[1], end[1]) - self.buffer_deg
-        east = max(start[1], end[1]) + self.buffer_deg
-        return south, west, north, east
+        lats = [p[0] for p in points]
+        lons = [p[1] for p in points]
+        return (
+            min(lats) - self.buffer_deg,
+            min(lons) - self.buffer_deg,
+            max(lats) + self.buffer_deg,
+            max(lons) + self.buffer_deg,
+        )
 
     def _nearest_node(
         self,

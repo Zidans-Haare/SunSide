@@ -217,6 +217,7 @@ destination = ""
 origin_place = None
 destination_place = None
 travel_hours = None
+waypoint_places: list = []
 gpx_file = None
 gtfs_board_stop = None
 gtfs_alight_stop = None
@@ -239,6 +240,11 @@ if travel_mode == "Zug":
     departure = tz.localize(datetime.combine(dep_date, dep_time))
     if st.toggle("Reisedauer manuell setzen", value=False, key="train_duration_toggle"):
         travel_hours = st.slider("Reisedauer (Stunden)", 0.5, 12.0, 2.0, 0.5, key="train_duration")
+    with st.expander("Via (Zwischenziele)", expanded=False):
+        n_wp = st.number_input("Anzahl Zwischenziele", min_value=0, max_value=5, value=0, step=1, key="n_waypoints")
+        for _i in range(int(n_wp)):
+            _, _wp = station_picker(f"Zwischenziel {_i + 1}", "", f"waypoint_{_i}")
+            waypoint_places.append(_wp)
 
 elif travel_mode == "Auto/Bus":
     col1, col2 = st.columns(2)
@@ -357,11 +363,13 @@ if st.button("Berechnen", type="primary"):
                     st.warning("Bitte Start- und Zielbahnhof aus der Liste auswaehlen.")
                     st.stop()
                 provider = OsmRailProvider()
+                wp_coords = [(p.lat, p.lon) for p in waypoint_places if p is not None]
                 points = provider.get_route_between_coordinates(
                     (origin_place.lat, origin_place.lon),
                     (destination_place.lat, destination_place.lon),
                     departure,
                     travel_hours=travel_hours,
+                    waypoints=wp_coords,
                 )
             elif travel_mode == "Auto/Bus":
                 if origin_place is None or destination_place is None:
